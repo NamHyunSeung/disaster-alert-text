@@ -50,10 +50,10 @@ def normalize_text(text: str) -> str:
 # ─────────────────────────────────────────
 # 설정
 # ─────────────────────────────────────────
-MODEL_NAME   = "monologg/koelectra-base-v3-discriminator"
+MODEL_NAME   = "../koelectra_v3_model"
 MAX_LENGTH   = 96
 BATCH_SIZE   = 64
-MAX_EPOCHS   = 7
+MAX_EPOCHS   = 3
 LR           = 3e-5
 WARMUP_RATIO = 0.1
 WEIGHT_DECAY = 0.01
@@ -61,7 +61,7 @@ FOCAL_GAMMA  = 2.0
 ES_PATIENCE  = 2
 NUM_LABELS   = 3
 LABEL_NAMES  = ['긴급', '주의', '일반']
-SAVE_DIR     = "koelectra_v3_model"
+SAVE_DIR     = "../koelectra_v3_model"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 log(f"장치: {device}")
@@ -169,9 +169,9 @@ def evaluate(model, loader, criterion):
 # 데이터 로드
 # ─────────────────────────────────────────
 log("\n데이터 로드 중...")
-train_df = pd.read_csv('data_train.csv', encoding='utf-8-sig').fillna({'메시지내용': ''})
-val_df   = pd.read_csv('data_val.csv',   encoding='utf-8-sig').fillna({'메시지내용': ''})
-test_df  = pd.read_csv('data_test.csv',  encoding='utf-8-sig').fillna({'메시지내용': ''})
+train_df = pd.read_csv('../data/processed/data_train.csv', encoding='utf-8-sig').fillna({'메시지내용': ''})
+val_df   = pd.read_csv('../data/processed/data_val.csv',   encoding='utf-8-sig').fillna({'메시지내용': ''})
+test_df  = pd.read_csv('../data/processed/data_test.csv',  encoding='utf-8-sig').fillna({'메시지내용': ''})
 
 # 발신기관명 마스킹 적용
 for _df in [train_df, val_df, test_df]:
@@ -432,8 +432,8 @@ ax.set_xlabel('임계값')
 ax.legend(); ax.grid(alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('koelectra_v2_dashboard.png', dpi=150, bbox_inches='tight')
-log("대시보드 저장: koelectra_v2_dashboard.png")
+plt.savefig('../../outputs/koelectra_v3_v2_dashboard.png', dpi=150, bbox_inches='tight')
+log("대시보드 저장: ../../outputs/koelectra_v3_v2_dashboard.png")
 
 # 2. 혼동 행렬 (기본 / 최적 임계값)
 fig, axes = plt.subplots(2, 2, figsize=(12, 10))
@@ -451,8 +451,8 @@ for row, (preds, title) in enumerate([(t_preds, f'기본 임계값 0.5'),
         axes[row, col].set_xlabel('예측')
         axes[row, col].set_ylabel('실제')
 plt.tight_layout()
-plt.savefig('koelectra_v2_confusion.png', dpi=150, bbox_inches='tight')
-log("혼동 행렬 저장: koelectra_v2_confusion.png")
+plt.savefig('../../outputs/koelectra_v3_v2_confusion.png', dpi=150, bbox_inches='tight')
+log("혼동 행렬 저장: ../../outputs/koelectra_v3_v2_confusion.png")
 
 # 3. 전체 모델 비교
 try:
@@ -485,8 +485,8 @@ for bar, v in zip(bars, results_df['test_macro_f1']):
     ax.text(v + 0.002, bar.get_y() + bar.get_height()/2,
             f'{v:.4f}', va='center', fontsize=9)
 plt.tight_layout()
-plt.savefig('all_models_comparison.png', dpi=150, bbox_inches='tight')
-log("비교 저장: all_models_comparison.png")
+plt.savefig('../../outputs/koelectra_v3_v2_all_models_comparison.png', dpi=150, bbox_inches='tight')
+log("비교 저장: ../../outputs/koelectra_v3_v2_all_models_comparison.png")
 
 # ─────────────────────────────────────────
 # 요약 저장
@@ -521,11 +521,11 @@ summary += f"""
 최적 임계값     : {best_thresh:.2f}
 """
 
-with open('koelectra_v2_summary.txt', 'w', encoding='utf-8') as f:
+with open('../../outputs/koelectra_v3_v2_summary.txt', 'w', encoding='utf-8') as f:
     f.write(summary)
 log(summary)
 
-with open('koelectra_v2_history.json', 'w') as f:
+with open('../../outputs/koelectra_v3_v2_history.json', 'w') as f:
     h = {k: v for k, v in history.items() if k != 'step_losses'}
     json.dump(h, f, indent=2)
 

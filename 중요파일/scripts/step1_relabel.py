@@ -75,6 +75,13 @@ def create_label(row) -> int:
     # 주요 재해 카테고리 발생
     if category in CAUTION_CATEG and '발생' in msg:
         return 1
+    # 메시지 내용 기반 추가 주의 패턴 (재해구분명 없어도 판단)
+    if any(kw in msg for kw in ['화재 발생', '산불 발생', '산불 위험', '산불발생']):
+        return 1
+    if any(kw in msg for kw in ['연기 발생', '연기가 발생', '연기발생', '다량의 연기']):
+        return 1
+    if any(kw in msg for kw in ['낙석', '월파']):
+        return 1
     # 감염병 경보/주의보 (확진자 수 안내는 일반)
     if category == '전염병' and any(kw in msg for kw in ['경보', '주의보', '비상사태']):
         return 1
@@ -87,7 +94,7 @@ def create_label(row) -> int:
 # 실행
 # ─────────────────────────────────────────
 print("데이터 로드 중...")
-df = pd.read_excel('재난문자_통합_2011~현재_분류완성.xlsx')
+df = pd.read_excel('../data/raw/재난문자_통합_2011~현재_분류완성.xlsx')
 df['메시지내용'] = df['메시지내용'].fillna('')
 print(f"전체 {len(df):,}행")
 
@@ -117,16 +124,16 @@ for i, n in enumerate(['긴급', '주의', '일반']):
     axes[1].text(i, counts[n] + 500, f'{counts[n]:,}', ha='center', fontsize=9)
 axes[1].set_title('수량')
 plt.tight_layout()
-plt.savefig('label_distribution_v2.png', dpi=150, bbox_inches='tight')
+plt.savefig('../../outputs/label_distribution_v2.png', dpi=150, bbox_inches='tight')
 print("분포 저장: label_distribution_v2.png")
 
 # 이전 레이블과 비교
 try:
-    old = pd.read_csv('data_train.csv', encoding='utf-8-sig')
+    old = pd.read_csv('../data/processed/data_train.csv', encoding='utf-8-sig')
     old_full = pd.concat([
-        pd.read_csv('data_train.csv', encoding='utf-8-sig'),
-        pd.read_csv('data_val.csv',   encoding='utf-8-sig'),
-        pd.read_csv('data_test.csv',  encoding='utf-8-sig'),
+        pd.read_csv('../data/processed/data_train.csv', encoding='utf-8-sig'),
+        pd.read_csv('../data/processed/data_val.csv',   encoding='utf-8-sig'),
+        pd.read_csv('../data/processed/data_test.csv',  encoding='utf-8-sig'),
     ])
     changed = (df['label'].values != old_full.sort_index()['label'].values).sum()
     print(f"\n이전 대비 변경된 레이블: {changed:,}건 ({changed/len(df)*100:.1f}%)")
@@ -142,11 +149,11 @@ val_df, test_df   = train_test_split(temp_df,  test_size=0.50,
 
 print(f"\n분할: Train {len(train_df):,} / Val {len(val_df):,} / Test {len(test_df):,}")
 for name, split in [('train', train_df), ('val', val_df), ('test', test_df)]:
-    split.to_csv(f'data_{name}.csv', index=False, encoding='utf-8-sig')
+    split.to_csv(f'../data/processed/data_{name}.csv', index=False, encoding='utf-8-sig')
 print("저장 완료: data_train.csv / data_val.csv / data_test.csv")
 
 # 레이블 기준 저장
-with open('label_rules_v2.txt', 'w', encoding='utf-8') as f:
+with open('../../outputs/label_rules_v2.txt', 'w', encoding='utf-8') as f:
     f.write(__doc__)
     f.write(f"\n\n=== 분포 ===\n")
     for n in ['긴급', '주의', '일반']:

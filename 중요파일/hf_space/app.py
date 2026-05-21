@@ -20,6 +20,7 @@ app = FastAPI(title="재난문자 분류 API")
 MAX_LENGTH  = 96
 LABEL_NAMES = ['긴급', '주의', '일반']
 UNCERTAIN_THRESH = {'긴급': 0.60, '주의': 0.70, '일반': 0.70}
+EMERG_THRESH     = 0.10
 
 _ORG_PATTERN  = re.compile(r'\[[^\]]{1,20}\]')
 _CERT_EMERG   = [
@@ -48,18 +49,22 @@ class ClassifyRequest(BaseModel):
 async def classify(req: ClassifyRequest):
     text = _ORG_PATTERN.sub('[기관]', req.message)
 
-    if any(kw in text for kw in _CERT_EMERG):
+    has_emerg   = any(kw in text for kw in _CERT_EMERG)
+    has_caution = any(kw in text for kw in _CERT_CAUTION)
+    has_general = any(kw in text for kw in _CERT_GENERAL) and 'cm' in text
+
+    if has_emerg and not has_caution:
         return {"label": "긴급", "confidence": 1.0, "stage": "rule", "uncertain": False}
-    if any(kw in text for kw in _CERT_CAUTION):
+    if has_caution and not has_emerg:
         return {"label": "주의", "confidence": 1.0, "stage": "rule", "uncertain": False}
-    if any(kw in text for kw in _CERT_GENERAL) and 'cm' in text:
+    if has_general and not has_emerg and not has_caution:
         return {"label": "일반", "confidence": 1.0, "stage": "rule", "uncertain": False}
 
     inputs = tokenizer(text, truncation=True, padding='max_length',
                        max_length=MAX_LENGTH, return_tensors='pt')
     with torch.no_grad():
         probs = F.softmax(model(**inputs).logits, dim=-1)[0]
-    pred_idx   = probs.argmax().item()
+    pred_idx   = 0 if probs[0].item() >= EMERG_THRESH else probs.argmax().item()
     label      = LABEL_NAMES[pred_idx]
     confidence = probs[pred_idx].item()
 

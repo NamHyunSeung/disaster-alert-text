@@ -24,6 +24,7 @@ COLORS      = {'긴급': '[긴급]', '주의': '[주의]', '일반': '[일반]'}
 
 # 불확실 경고 임계값 (모델 예측 시만 적용)
 UNCERTAIN_THRESH = {'긴급': 0.60, '주의': 0.70, '일반': 0.70}
+EMERG_THRESH     = 0.10  # 긴급 분류 임계값 (최적화된 값)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -54,12 +55,13 @@ def rule_classify(msg: str):
     고확신 케이스만 판정. 불명확하면 None 반환 → 모델에 위임.
     반환: 0(긴급) / 1(주의) / 2(일반) / None(모델 위임)
     """
-    if any(kw in msg for kw in _CERT_EMERG):
-        return 0
-    if any(pat in msg for pat in _CERT_CAUTION):
-        return 1
-    if any(kw in msg for kw in _CERT_GENERAL) and 'cm' in msg:
-        return 2
+    has_emerg   = any(kw in msg for kw in _CERT_EMERG)
+    has_caution = any(kw in msg for kw in _CERT_CAUTION)
+    has_general = any(kw in msg for kw in _CERT_GENERAL) and 'cm' in msg
+
+    if has_emerg and not has_caution:                        return 0
+    if has_caution and not has_emerg:                        return 1
+    if has_general and not has_emerg and not has_caution:    return 2
     return None
 
 
@@ -81,7 +83,7 @@ def model_predict(text: str) -> dict:
     inputs = {k: v.to(device) for k, v in inputs.items()}
     with torch.no_grad():
         probs = F.softmax(model(**inputs).logits, dim=-1)[0]
-    pred_idx = probs.argmax().item()
+    pred_idx = 0 if probs[0].item() >= EMERG_THRESH else probs.argmax().item()
     return {
         'label':      LABEL_NAMES[pred_idx],
         'confidence': probs[pred_idx].item(),
