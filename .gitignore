@@ -1,0 +1,27 @@
+# 모델 가중치 (HF Hub에 업로드됨: nhs0327/koelectra-disaster-v3)
+*.safetensors
+*.bin
+*.pt
+*.pkl
+
+# 대용량 데이터
+*.xlsx
+*.csv
+
+# 이전 모델 디렉토리
+klue_bert_model/
+koelectra_model/
+koelectra_v2_model/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/

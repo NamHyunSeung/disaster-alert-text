@@ -1,0 +1,25 @@
+
+=== KoELECTRA-v3 학습 요약 ===
+모델     : monologg/koelectra-base-v3-discriminator
+손실함수 : Focal Loss (gamma=2.0)
+학습방식 : Cosine Warmup LR / AdamW / Early Stopping (patience=2)
+총 에폭  : 6 / 7 (Early Stopping (patience=2 에폭 개선 없음))
+Best 에폭: 4
+총 시간  : 179.7분
+
+=== 과적합 진단 ===
+판정: 과적합 없음 (최대 gap=0.0509)
+
+  에폭    Train      Val      Gap   Macro F1
+──────────────────────────────────────────────
+   1   0.2002   0.0630  -0.1372     0.9000
+   2   0.0723   0.0509  -0.0214     0.9166
+   3   0.0536   0.0571  +0.0034     0.9260
+   4   0.0341   0.0590  +0.0249     0.9595 <-- Best
+   5   0.0239   0.0624  +0.0385     0.9535
+   6   0.0148   0.0657  +0.0509     0.9592
+
+=== Test 최종 성능 ===
+Accuracy    : 0.9878
+Macro F1    : 0.9582
+Weighted F1 : 0.9879

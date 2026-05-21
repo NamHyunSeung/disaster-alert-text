@@ -1,0 +1,40 @@
+# 대용량 데이터 파일
+*.xlsx
+*.csv
+*.pkl
+
+# 모델 가중치 (safetensors, pytorch)
+*.safetensors
+*.bin
+*.pt
+
+# 모델 디렉토리 (가중치 파일 포함)
+klue_bert_model/
+koelectra_model/
+koelectra_v2_model/
+koelectra_v3_model/
+
+# 이미지 출력
+*.png
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
+
+# 텍스트 결과 파일
+attention_summary.txt
+baseline_errors.txt
+data_check.txt
+demo_result.txt
+hard_cases.txt
+predict_demo.txt
+koelectra_summary.txt
+koelectra_v2_summary.txt
+new.txt
+
+# JSON 히스토리 (학습 기록)
+*.json
+
+# 레이블 기준 텍스트
+label_rules.txt
+label_rules_v2.txt

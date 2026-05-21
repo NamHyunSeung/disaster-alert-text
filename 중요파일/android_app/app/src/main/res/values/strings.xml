@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">재난문자 분류기</string>
+    <string name="notification_listener_label">재난문자 알림 수신</string>
+</resources>
