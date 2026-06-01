@@ -5,7 +5,7 @@ import torch, sys
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-MODEL_DIR  = "koelectra_model"
+MODEL_DIR  = "실험/베이스모델/koelectra_model"
 MAX_LENGTH = 128
 LABELS     = ['긴급', '주의', '일반']
 device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")

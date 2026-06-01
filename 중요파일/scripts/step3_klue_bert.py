@@ -47,7 +47,7 @@ LR           = 2e-5
 WARMUP_RATIO = 0.1
 NUM_LABELS   = 3
 LABEL_NAMES  = ['긴급', '주의', '일반']
-SAVE_DIR     = "klue_bert_model"
+SAVE_DIR     = "../실험/베이스모델/klue_bert_model"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"장치: {device}")

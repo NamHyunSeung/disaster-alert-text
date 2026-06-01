@@ -44,7 +44,7 @@ FOCAL_GAMMA  = 2.0        # Focal Loss 집중도 (0=CE, 2=권장)
 ES_PATIENCE  = 2          # Early Stopping patience (에폭 단위)
 NUM_LABELS   = 3
 LABEL_NAMES  = ['긴급', '주의', '일반']
-SAVE_DIR     = "koelectra_model"
+SAVE_DIR     = "../실험/베이스모델/koelectra_model"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"장치: {device}")

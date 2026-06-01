@@ -30,7 +30,7 @@ def log(msg): print(msg, flush=True)
 # ─────────────────────────────────────────
 # 설정
 # ─────────────────────────────────────────
-MODEL_DIR   = "koelectra_v2_model"
+MODEL_DIR   = "../실험/베이스모델/koelectra_v2_model"
 MAX_LENGTH  = 96
 LABEL_NAMES = ['긴급', '주의', '일반']
 LABEL_COLORS = {'긴급': '#e74c3c', '주의': '#f39c12', '일반': '#3498db'}
