@@ -1,7 +1,7 @@
 # 재난문자 긴급도 분류 모델
 
 한국 재난문자(CBS)를 **5단계 긴급도(L0~L4)**로 자동 분류하는 딥러닝 모델.  
-KLUE-BERT-base 기반, 키워드 마스킹 증강 + 3-component 손실 함수 적용.
+KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 적용.
 
 ## 최종 성능 (v9n + threshold=0.69)
 
@@ -27,7 +27,7 @@ KLUE-BERT-base 기반, 키워드 마스킹 증강 + 3-component 손실 함수 �
 │   ├── src/
 │   │   ├── dataset.py       # 텍스트 전처리
 │   │   ├── dataset_v2.py    # 키워드 마스킹 데이터셋
-│   │   ├── model.py         # KLUE-BERT 모델 로더
+│   │   ├── model.py         # KoELECTRA 모델 로더
 │   │   ├── loss.py          # FocalLoss (γ=2.0)
 │   │   ├── utils.py         # 평가 지표 계산
 │   │   ├── train_v2.py      # 학습 스크립트 (v9 손실)
@@ -68,7 +68,7 @@ KLUE-BERT-base 기반, 키워드 마스킹 증강 + 3-component 손실 함수 �
 
 ## 모델 아키텍처
 
-**Base**: `klue/bert-base` (110M params) → 5-class classifier
+**Base**: `monologg/koelectra-base-v3-discriminator` (KoELECTRA v3, ~110M params) → 5-class classifier
 
 **학습 핵심 기법 (v9)**:
 
@@ -186,15 +186,30 @@ pandas, openpyxl
 
 ---
 
+## 모델-토크나이저 매칭표
+
+| 모델 | 베이스 모델 | 토크나이저 | vocab | 매칭 |
+|------|------------|------------|-------|------|
+| model ~ model_v4_probe | KLUE-BERT (`klue/bert-base`) | tokenizer (32000) | 32000 | ✓ |
+| model_v5 ~ model_v8 | KoELECTRA v3 | tokenizer_v5 ~ tokenizer_v7 | 35000 | ✓ |
+| model_v9 ~ model_v9d | KoELECTRA v3 (35000) | tokenizer_v9 ~ tokenizer_v9d (32000) | **불일치** | ✗ |
+| model_v9e ~ model_v9o | KoELECTRA v3 | tokenizer_v9e ~ tokenizer_v9o | 35000 | ✓ |
+| **model_v9n (최종)** | **KoELECTRA v3** | **tokenizer_v9n** | **35000** | **✓** |
+
+> v9~v9d는 실험 중 잘못된 토크나이저(vocab=32000)가 저장된 오류 버전 — 추론 시 사용 불가.  
+> **실제 사용 가능한 최종 모델: `model_v9n` + `tokenizer_v9n`**
+
+---
+
 ## 실험 이력
 
-| 버전 | 주요 변경 | Macro F1 |
-|------|-----------|----------|
-| v1~v4 | KoELECTRA, 기본 CE | ~94% |
-| v5~v6 | KLUE-BERT, FocalLoss | ~96% |
-| v7~v8 | 키워드 마스킹 증강 | ~97% |
-| v9~v9m | 3-component 손실 | ~98.5% |
-| **v9n** | 레이블링 기준 개선 | **98.83%** |
-| v9n + thr=0.69 | L3 임계값 후처리 | **98.83% (L2/3/4 >= 98%)** |
+| 버전 | 베이스 모델 | 주요 변경 | Macro F1 |
+|------|------------|-----------|----------|
+| model ~ v4 | KLUE-BERT | 초기 실험, 기본 CE | ~94% |
+| v5~v8 | **KoELECTRA v3** | FocalLoss, 키워드 마스킹 증강 | ~96~97% |
+| v9~v9d | KoELECTRA v3 | 3-component 손실 (토크나이저 오류) | — |
+| v9e~v9m | KoELECTRA v3 | 3-component 손실 (정상) | ~98.5% |
+| **v9n** | KoELECTRA v3 | 레이블링 기준 개선 | **98.83%** |
+| v9n + thr=0.69 | — | L3 임계값 후처리 | **98.83% (L2/3/4 >= 98%)** |
 
 실험용 스크립트는 `실험/` 폴더 참고.

@@ -1,5 +1,5 @@
 """
-모델을 Hugging Face Hub에 업로드 (KLUE-BERT 5-class)
+모델을 Hugging Face Hub에 업로드 (KoELECTRA v3 5-class)
 
 사용법:
   1. pip install huggingface_hub

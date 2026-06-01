@@ -1,6 +1,6 @@
 from transformers import AutoModelForSequenceClassification
 
-DEFAULT_MODEL = 'klue/bert-base'
+DEFAULT_MODEL = 'monologg/koelectra-base-v3-discriminator'
 NUM_LABELS = 5
 
 
