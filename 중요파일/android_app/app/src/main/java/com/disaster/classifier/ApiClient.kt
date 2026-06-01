@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit
 
 data class ClassifyResult(
     val label:      String,
+    val priority:   String,
     val confidence: Float,
     val stage:      String,
     val uncertain:  Boolean,

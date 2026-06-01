@@ -1,5 +1,5 @@
 """
-모델을 Hugging Face Hub에 업로드
+모델을 Hugging Face Hub에 업로드 (KLUE-BERT 5-class)
 
 사용법:
   1. pip install huggingface_hub
@@ -9,11 +9,12 @@
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-MODEL_DIR    = "koelectra_v3_model"
-HUB_MODEL_ID = input("HF Hub 모델 ID 입력 (예: your-username/koelectra-disaster-v3): ").strip()
+MODEL_DIR = "model_v9n"
+TOK_DIR   = "tokenizer_v9n"
+HUB_MODEL_ID = input("HF Hub 모델 ID 입력 (예: nhs0327/klue-bert-disaster-v1): ").strip()
 
 print("토크나이저 업로드 중...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+tokenizer = AutoTokenizer.from_pretrained(TOK_DIR)
 tokenizer.push_to_hub(HUB_MODEL_ID)
 
 print("모델 업로드 중...")

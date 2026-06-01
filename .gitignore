@@ -12,6 +12,66 @@
 klue_bert_model/
 koelectra_model/
 koelectra_v2_model/
+중요파일/koelectra_v3_model/
+
+# 실험용 모델/토크나이저 디렉토리 (최종: model_v9n, tokenizer_v9n)
+model/
+model_clean/
+model_v2/
+model_v3/
+model_v4/
+model_v4_probe/
+model_v5/
+model_v6/
+model_v7/
+model_v8/
+model_v9/
+model_v9b/
+model_v9c/
+model_v9d/
+model_v9e/
+model_v9f/
+model_v9g/
+model_v9h/
+model_v9i/
+model_v9j/
+model_v9k/
+model_v9l/
+model_v9m/
+model_v9o/
+tokenizer/
+tokenizer_v5/
+tokenizer_v6/
+tokenizer_v7/
+tokenizer_v9/
+tokenizer_v9b/
+tokenizer_v9c/
+tokenizer_v9d/
+tokenizer_v9e/
+tokenizer_v9f/
+tokenizer_v9g/
+tokenizer_v9h/
+tokenizer_v9i/
+tokenizer_v9j/
+tokenizer_v9k/
+tokenizer_v9l/
+tokenizer_v9m/
+tokenizer_v9o/
+
+# 대용량 로그/결과 파일
+train_v5.log
+train_v6.log
+results_output.txt
+results_perclass.txt
+
+# 빌드 산출물
+중요파일/android_app/build/
+중요파일/android_app/app/build/
+중요파일/android_app/.gradle/
+중요파일/android_app/local.properties
+
+# 개인 메모
+내용.txt
 
 # Python
 __pycache__/

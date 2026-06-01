@@ -3,8 +3,6 @@ package com.disaster.classifier
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
-import android.telephony.SmsCbMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,14 +29,15 @@ class CbsReceiver : BroadcastReceiver() {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun extractTexts(intent: Intent): List<String>? {
-        val extras = intent.extras ?: return null
-        val msgs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            extras.getParcelableArray("message", SmsCbMessage::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            extras.getParcelableArray("message")
-        } ?: return null
-        return msgs.mapNotNull { (it as? SmsCbMessage)?.messageBody }.ifEmpty { null }
+        val msgs = intent.extras?.getParcelableArray("message") ?: return null
+        return msgs.mapNotNull { msg ->
+            try {
+                msg.javaClass.getMethod("getMessageBody").invoke(msg) as? String
+            } catch (e: Exception) {
+                null
+            }
+        }.ifEmpty { null }
     }
 }

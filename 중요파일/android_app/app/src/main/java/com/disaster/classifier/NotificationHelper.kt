@@ -31,7 +31,7 @@ object NotificationHelper {
     }
 
     fun show(ctx: Context, message: String, result: ClassifyResult) {
-        val (channelId, title, priority) = when (result.label) {
+        val (channelId, title, priority) = when (result.priority) {
             "긴급" -> Triple(CH_EMERG,   "[긴급] 재난문자", NotificationCompat.PRIORITY_HIGH)
             "주의" -> Triple(CH_CAUTION, "[주의] 재난문자", NotificationCompat.PRIORITY_DEFAULT)
             else  -> Triple(CH_NORMAL,  "[일반] 재난문자", NotificationCompat.PRIORITY_LOW)
