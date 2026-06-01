@@ -43,9 +43,22 @@ KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 적�
 │   ├── data/                # 데이터 (gitignore: *.xlsx)
 │   └── android_app/         # Android CBS 수신 앱
 ├── model_v9n/               # 최종 모델 가중치 (gitignore: *.safetensors)
-├── tokenizer_v9n/           # 토크나이저 설정
+├── tokenizer_v9n/           # 최종 토크나이저 (vocab 35000)
 ├── results/                 # 평가 결과 및 시각화
-├── 실험/                    # 실험용 구버전 스크립트
+├── 실험/                    # 실험용 구버전 스크립트 및 모델
+│   ├── klue_bert/           # KLUE-BERT 초기 실험 (vocab 32000)
+│   │   ├── model ~ model_v4_probe/
+│   │   └── tokenizer/
+│   ├── koelectra_v5_v8/     # KoELECTRA v3, v5~v8 (vocab 35000, ✓)
+│   │   ├── model_v5 ~ model_v8/
+│   │   └── tokenizer_v5 ~ tokenizer_v7/
+│   ├── koelectra_v9_mismatch/  # v9~v9d, vocab 불일치 ✗ (사용 불가)
+│   │   ├── model_v9 ~ model_v9d/
+│   │   └── tokenizer_v9 ~ tokenizer_v9d/   ← vocab=32000 오류
+│   ├── koelectra_v9e_v9o/   # KoELECTRA v3, v9e~v9o (vocab 35000, ✓)
+│   │   ├── model_v9e ~ model_v9o/
+│   │   └── tokenizer_v9e ~ tokenizer_v9o/
+│   └── (실험용 스크립트들)
 └── .gitignore
 ```
 
