@@ -45,7 +45,12 @@ KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 적�
 ├── model_v9n/               # 최종 모델 가중치 (gitignore: *.safetensors)
 ├── tokenizer_v9n/           # 최종 토크나이저 (vocab 35000)
 ├── results/                 # 평가 결과 및 시각화
+│   └── outputs/             # 초기 실험 분석 결과 (attention, baseline 등)
 ├── 실험/                    # 실험용 구버전 스크립트 및 모델
+│   ├── 베이스모델/          # 사전학습 베이스 모델 (gitignore)
+│   │   ├── klue_bert_model/
+│   │   ├── koelectra_model/
+│   │   └── koelectra_v2_model/
 │   ├── klue_bert/           # KLUE-BERT 초기 실험 (vocab 32000)
 │   │   ├── model ~ model_v4_probe/
 │   │   └── tokenizer/
@@ -58,7 +63,8 @@ KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 적�
 │   ├── koelectra_v9e_v9o/   # KoELECTRA v3, v9e~v9o (vocab 35000, ✓)
 │   │   ├── model_v9e ~ model_v9o/
 │   │   └── tokenizer_v9e ~ tokenizer_v9o/
-│   └── (실험용 스크립트들)
+│   ├── analyze_*.py         # 오류·단계별 분석 스크립트
+│   └── utils/               # 공통 유틸리티
 └── .gitignore
 ```
 
