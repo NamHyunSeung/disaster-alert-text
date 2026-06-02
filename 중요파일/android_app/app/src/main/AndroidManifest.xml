@@ -20,6 +20,16 @@
             </intent-filter>
         </activity>
 
+        <!-- 일반 SMS 수신 -->
+        <receiver
+            android:name=".SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
         <!-- CBS 직접 수신 (일부 Samsung 기기에서 동작) -->
         <receiver
             android:name=".CbsReceiver"

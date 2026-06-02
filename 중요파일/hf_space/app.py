@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # ── 수정 필요 ──────────────────────────────────
-HUB_MODEL_ID = "nhs0327/klue-bert-disaster-v1"
+HUB_MODEL_ID = "nhs0327/koelectra-disaster-v9n"
 # ──────────────────────────────────────────────
 
 app = FastAPI(title="재난문자 분류 API")

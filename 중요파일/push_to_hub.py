@@ -5,13 +5,20 @@
   1. pip install huggingface_hub
   2. huggingface-cli login   (HF 계정 토큰 입력)
   3. python push_to_hub.py
+  4. python push_to_hub.py --id nhs0327/koelectra-disaster-v9n  (ID 직접 지정)
 """
 
+import argparse
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-MODEL_DIR = "model_v9n"
-TOK_DIR   = "tokenizer_v9n"
-HUB_MODEL_ID = input("HF Hub 모델 ID 입력 (예: nhs0327/klue-bert-disaster-v1): ").strip()
+parser = argparse.ArgumentParser()
+parser.add_argument("--id", default="nhs0327/koelectra-disaster-v9n",
+                    help="HF Hub 모델 ID")
+args = parser.parse_args()
+
+MODEL_DIR    = "model_v9n"
+TOK_DIR      = "tokenizer_v9n"
+HUB_MODEL_ID = args.id
 
 print("토크나이저 업로드 중...")
 tokenizer = AutoTokenizer.from_pretrained(TOK_DIR)

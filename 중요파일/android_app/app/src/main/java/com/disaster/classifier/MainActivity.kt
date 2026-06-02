@@ -27,7 +27,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         NotificationHelper.createChannels(this)
-        requestNotificationPermission()
+        requestPermissions()
 
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         binding.etServerUrl.setText(prefs.getString("server_url", "https://nhs0327-disaster-classifier.hf.space"))
@@ -71,15 +71,17 @@ class MainActivity : AppCompatActivity() {
         return flat.contains(packageName)
     }
 
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1
-                )
-            }
+    private fun requestPermissions() {
+        val needed = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
+            != PackageManager.PERMISSION_GRANTED
+        ) needed.add(Manifest.permission.RECEIVE_SMS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        if (needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), 1)
         }
     }
 }
