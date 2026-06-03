@@ -1,0 +1,41 @@
+Device: cuda
+GPU: NVIDIA GeForce RTX 5060 Laptop GPU
+
+µ•¿Ã≈Õ ∑ŒµÂ ¡ﬂ...
+Train: 118,468 / Val: 25,386 / Test: 25,387
+
+«–Ω¿ µ•¿Ã≈Õ ∑π¿Ã∫Ì ∫–∆˜:
+  Label 0 (±‰±ﬁ æ∆¥‘): 68,649∞« (57.9%)
+  Label 1 (≥∑¿∫ ±‰±ﬁº∫): 28,101∞« (23.7%)
+  Label 2 (¡ﬂ∞£ ±‰±ﬁº∫): 8,641∞« (7.3%)
+  Label 3 (≥Ù¿∫ ±‰±ﬁº∫): 9,720∞« (8.2%)
+  Label 4 (∏≈øÏ ≥Ù¿∫ ±‰±ﬁº∫): 3,357∞« (2.8%)
+
+≈‰≈©≥™¿Ã¿˙ ∑ŒµÂ ¡ﬂ...
+save_by_masked_val: masked val F1 ±‚¡ÿ¿∏∑Œ best model ¿˙¿Â
+v9 Consistency Training: 118,468∞« ø¯∫ª µ•¿Ã≈Õ (KL •·=0.0)
+
+∏µ® ∑ŒµÂ ¡ﬂ: monologg/koelectra-base-v3-discriminator
+Loading weights:   0%|          | 0/197 [00:00<?, ?it/s]Loading weights: 100%|##########| 197/197 [00:00<00:00, 34786.25it/s]
+[transformers] [1mElectraForSequenceClassification LOAD REPORT[0m from: monologg/koelectra-base-v3-discriminator
+Key                                               | Status     | 
+--------------------------------------------------+------------+-
+discriminator_predictions.dense.bias              | UNEXPECTED | 
+discriminator_predictions.dense_prediction.bias   | UNEXPECTED | 
+discriminator_predictions.dense_prediction.weight | UNEXPECTED | 
+discriminator_predictions.dense.weight            | UNEXPECTED | 
+classifier.dense.weight                           | MISSING    | 
+classifier.out_proj.weight                        | MISSING    | 
+classifier.dense.bias                             | MISSING    | 
+classifier.out_proj.bias                          | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+
+√— 27,780 Ω∫≈‹ (15 ø°∆¯ °ø 1,852 πËƒ°)
+≈∞øˆµÂ ∏∂Ω∫≈∑ »Æ∑¸: 30%
+°ÿ GPU ±‚¡ÿ ø°∆¯¥Á æ‡ 13~17∫– øπªÛ
+
+[MILESTONE] Epoch 1/15 0% (0/1852)
+Epoch 1/15 [Train v9]:   0%|                                               | 0/1852 [00:00<?, ?it/s]Epoch 1/15 [Train v9]:   0%|             | 0/1852 [02:11<?, ?it/s, loss=2.0341, πËƒ°ETA=67h 33m 24s]Epoch 1/15 [Train v9]:   0%| | 1/1852 [02:11<67:33:22, 131.39s/it, loss=2.0341, πËƒ°ETA=67h 33m 24s]Epoch 1/15 [Train v9]:   0%| | 1/1852 [04:44<67:33:22, 131.39s/it, loss=2.0463, πËƒ°ETA=73h 02m 19s]Epoch 1/15 [Train v9]:   0%| | 2/1852 [04:44<74:00:43, 144.02s/it, loss=2.0463, πËƒ°ETA=73h 02m 19s]Epoch 1/15 [Train v9]:   0%| | 2/1852 [07:18<74:00:43, 144.02s/it, loss=2.0596, πËƒ°ETA=75h 08m 20s]Epoch 1/15 [Train v9]:   0%| | 3/1852 [07:18<76:27:33, 148.87s/it, loss=2.0596, πËƒ°ETA=75h 08m 20s]Epoch 1/15 [Train v9]:   0%| | 3/1852 [09:52<76:27:33, 148.87s/it, loss=2.0638, πËƒ°ETA=76h 03m 58s]Epoch 1/15 [Train v9]:   0%| | 4/1852 [09:52<77:25:30, 150.83s/it, loss=2.0638, πËƒ°ETA=76h 03m 58s]Epoch 1/15 [Train v9]:   0%| | 4/1852 [12:27<77:25:30, 150.83s/it, loss=2.0676, πËƒ°ETA=76h 43m 08s]Epoch 1/15 [Train v9]:   0%| | 5/1852 [12:27<78:08:42, 152.31s/it, loss=2.0676, πËƒ°ETA=76h 43m 08s]Epoch 1/15 [Train v9]:   0%| | 5/1852 [15:02<78:08:42, 152.31s/it, loss=2.0639, πËƒ°ETA=77h 07m 22s]Epoch 1/15 [Train v9]:   0%| | 6/1852 [15:02<78:31:36, 153.14s/it, loss=2.0639, πËƒ°ETA=77h 07m 22s]Epoch 1/15 [Train v9]:   0%| | 6/1852 [17:31<78:31:36, 153.14s/it, loss=2.0697, πËƒ°ETA=76h 59m 01s]Epoch 1/15 [Train v9]:   0%| | 7/1852 [17:31<77:48:09, 151.81s/it, loss=2.0697, πËƒ°ETA=76h 59m 01s]Epoch 1/15 [Train v9]:   0%| | 7/1852 [19:56<77:48:09, 151.81s/it, loss=2.0708, πËƒ°ETA=76h 34m 57s]Epoch 1/15 [Train v9]:   0%| | 8/1852 [19:56<76:35:04, 149.51s/it, loss=2.0708, πËƒ°ETA=76h 34m 57s]Epoch 1/15 [Train v9]:   0%| | 8/1852 [22:33<76:35:04, 149.51s/it, loss=2.0684, πËƒ°ETA=76h 57m 51s]Epoch 1/15 [Train v9]:   0%| | 9/1852 [22:33<77:43:58, 151.84s/it, loss=2.0684, πËƒ°ETA=76h 57m 51s]Epoch 1/15 [Train v9]:   0%| | 9/1852 [25:18<77:43:58, 151.84s/it, loss=2.0668, πËƒ°ETA=77h 43m 19s]Epoch 1/15 [Train v9]:   1%| | 10/1852 [25:18<79:55:19, 156.20s/it, loss=2.0668, πËƒ°ETA=77h 43m 19s

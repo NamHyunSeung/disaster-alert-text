@@ -123,10 +123,12 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
                        curriculum_mask=False, alpha_masked=1.0, lambda_con=0.0):
     """CE(원본) + CE(마스킹) + α×KL: masked text에서 직접 정답 지도 + 분포 일관성"""
     from dataset_v2 import _mask_text, _mask_text_partial
+    from sklearn.metrics import f1_score, recall_score
     model.train()
     total_loss = 0.0
     epoch_start = time.time()
     milestones_done = set()
+    run_preds, run_labels = [], []
 
     print(f"[MILESTONE] Epoch {epoch}/{total_epochs} 0% (0/{len(loader)})", flush=True)
 
@@ -189,6 +191,9 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
         total_loss += loss.item()
         avg_loss = total_loss / step
 
+        run_preds.extend(logits_orig.argmax(dim=-1).cpu().numpy())
+        run_labels.extend(lbls.cpu().numpy())
+
         elapsed = time.time() - epoch_start
         eta_epoch = elapsed / step * (len(loader) - step)
         pbar.set_postfix({'loss': f'{avg_loss:.4f}', '배치ETA': fmt_time(eta_epoch)})
@@ -196,7 +201,18 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
         pct = step / len(loader)
         for m, label in [(0.25, '25%'), (0.50, '50%'), (0.75, '75%')]:
             if pct >= m and m not in milestones_done:
-                print(f"\n[MILESTONE] Epoch {epoch}/{total_epochs} {label} (step {step}/{len(loader)}, loss {avg_loss:.4f})", flush=True)
+                macro_f1 = f1_score(run_labels, run_preds, average='macro', zero_division=0)
+                f1_per   = f1_score(run_labels, run_preds, average=None, labels=[0,1,2,3,4], zero_division=0)
+                rec_per  = recall_score(run_labels, run_preds, average=None, labels=[0,1,2,3,4], zero_division=0)
+                print(
+                    f"\n[MILESTONE] Epoch {epoch}/{total_epochs} {label}"
+                    f" (step {step}/{len(loader)}, loss {avg_loss:.4f},"
+                    f" train macro F1={macro_f1*100:.1f}%)"
+                    f"\n  L2 F1={f1_per[2]*100:.1f}%/R={rec_per[2]*100:.1f}%"
+                    f"  L3 F1={f1_per[3]*100:.1f}%/R={rec_per[3]*100:.1f}%"
+                    f"  L4 F1={f1_per[4]*100:.1f}%/R={rec_per[4]*100:.1f}%",
+                    flush=True
+                )
                 milestones_done.add(m)
 
     return total_loss / len(loader)
@@ -264,8 +280,14 @@ def main():
     parser.add_argument('--save_criterion', type=str, default='l234_min',
                         choices=['macro_f1', 'l234_min'],
                         help='best model 저장 기준: macro_f1 또는 l234_min(L2/L3/L4 F1+Recall 최솟값, 기본)')
+    parser.add_argument('--class_weight', type=str, default=None,
+                        help='클래스 가중치 (예: "1,1,2,3.5,6"). 지정 시 FocalLoss 대신 CE+weight 사용')
+    parser.add_argument('--upsample_synthetic', type=int, default=0,
+                        help='is_synthetic=1인 train 샘플 N배 복제 (0=off)')
     parser.add_argument('--label_smoothing', type=float, default=0.0,
                         help='Label smoothing for FocalLoss (default 0.0)')
+    parser.add_argument('--prebuilt', type=str, default=None,
+                        help='전처리 완료 parquet 경로 (build_preprocessed.py 출력); 지정 시 on-the-fly 마스킹 생략')
     args = parser.parse_args()
 
     if args.masked_ft and args.lr == 2e-5:
@@ -285,19 +307,29 @@ def main():
     os.makedirs('results',      exist_ok=True)
 
     print("\n데이터 로드 중...")
-    train_df, val_df, test_df = load_and_split_v2(args.data, seed=args.seed)
-    print(f"Train: {len(train_df):,} / Val: {len(val_df):,} / Test: {len(test_df):,}")
-
-    label_info = {
-        0: '긴급 아님', 1: '낮은 긴급성', 2: '중간 긴급성',
-        3: '높은 긴급성', 4: '매우 높은 긴급성',
-    }
-    print("\n학습 데이터 레이블 분포:")
-    for lbl, cnt in train_df['label'].value_counts().sort_index().items():
-        print(f"  Label {lbl} ({label_info[lbl]}): {cnt:,}건 ({cnt/len(train_df)*100:.1f}%)")
+    _prebuilt_masked_val_df = None  # prebuilt parquet에서 가져온 masked val DataFrame
+    if args.prebuilt:
+        _pb = pd.read_parquet(args.prebuilt)
+        val_df   = _pb[(_pb['split'] == 'val')  & (_pb['aug_type'] == 'original')][['text', 'label']].reset_index(drop=True)
+        test_df  = _pb[(_pb['split'] == 'test') & (_pb['aug_type'] == 'original')][['text', 'label']].reset_index(drop=True)
+        train_df = _pb[_pb['split'] == 'train'][['text', 'label']].reset_index(drop=True)
+        _prebuilt_masked_val_df = _pb[(_pb['split'] == 'val') & (_pb['aug_type'] == 'masked')][['text', 'label']].reset_index(drop=True)
+        print(f"Prebuilt 데이터셋 로드: {args.prebuilt}")
+        print(f"  Train(aug포함) {len(train_df):,} / Val {len(val_df):,} / Test {len(test_df):,}")
+        print("\n학습 데이터(aug) 레이블 분포:")
+        label_info = {0: '긴급 아님', 1: '낮은 긴급성', 2: '중간 긴급성', 3: '높은 긴급성', 4: '매우 높은 긴급성'}
+        for lbl, cnt in train_df['label'].value_counts().sort_index().items():
+            print(f"  Label {lbl} ({label_info[lbl]}): {cnt:,}건 ({cnt/len(train_df)*100:.1f}%)")
+    else:
+        train_df, val_df, test_df = load_and_split_v2(args.data, seed=args.seed)
+        print(f"Train: {len(train_df):,} / Val: {len(val_df):,} / Test: {len(test_df):,}")
+        label_info = {0: '긴급 아님', 1: '낮은 긴급성', 2: '중간 긴급성', 3: '높은 긴급성', 4: '매우 높은 긴급성'}
+        print("\n학습 데이터 레이블 분포:")
+        for lbl, cnt in train_df['label'].value_counts().sort_index().items():
+            print(f"  Label {lbl} ({label_info[lbl]}): {cnt:,}건 ({cnt/len(train_df)*100:.1f}%)")
 
     print("\n토크나이저 로드 중...")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
     tokenizer.save_pretrained(args.tok_dir)
 
     val_ds   = DisasterDatasetAug(val_df,   tokenizer, args.max_length, augment=False)
@@ -306,12 +338,25 @@ def main():
     # masked val: save_by_masked_val 시 사용
     masked_val_loader = None
     if (args.v9 or args.masked_ft) and args.save_by_masked_val:
-        from dataset_v2 import _mask_text
-        masked_val_df = val_df.copy()
-        masked_val_df['text'] = masked_val_df['text'].apply(_mask_text)
-        masked_val_ds = DisasterDatasetAug(masked_val_df, tokenizer, args.max_length, augment=False)
-        masked_val_loader = DataLoader(masked_val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
-        print("save_by_masked_val: masked val F1 기준으로 best model 저장")
+        if _prebuilt_masked_val_df is not None:
+            masked_val_ds = DisasterDatasetAug(_prebuilt_masked_val_df, tokenizer, args.max_length, augment=False)
+            masked_val_loader = DataLoader(masked_val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            print("save_by_masked_val: prebuilt masked val 사용")
+        else:
+            from dataset_v2 import _mask_text
+            masked_val_df = val_df.copy()
+            masked_val_df['text'] = masked_val_df['text'].apply(_mask_text)
+            masked_val_ds = DisasterDatasetAug(masked_val_df, tokenizer, args.max_length, augment=False)
+            masked_val_loader = DataLoader(masked_val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            print("save_by_masked_val: masked val F1 기준으로 best model 저장")
+
+    if args.upsample_synthetic > 0 and 'is_synthetic' in train_df.columns:
+        syn = train_df[train_df['is_synthetic'] == 1]
+        if len(syn) > 0:
+            train_df = pd.concat(
+                [train_df] + [syn] * (args.upsample_synthetic - 1), ignore_index=True
+            )
+            print(f"Synthetic upsampling x{args.upsample_synthetic}: {len(syn)}건 → {len(syn)*args.upsample_synthetic}건 (train 총 {len(train_df):,}건)")
 
     v9_collate = None  # v9 외에는 default collate 사용
 
@@ -323,24 +368,34 @@ def main():
         sampler  = make_weighted_sampler(train_df['label'].tolist())
         print(f"v9 Consistency Training: {len(train_df):,}건 원본 데이터 (KL α={args.consistency_alpha})")
     elif args.masked_ft:
-        from dataset_v2 import _mask_text, _mask_text_partial
-        hard_labels = {2, 3, 4}
-        frames = []
-        # 전체 레이블: 완전마스킹 1x (원본 제거)
-        mf = train_df.copy(); mf['text'] = mf['text'].apply(_mask_text)
-        frames.append(mf)
-        # Label 2/3/4: 부분마스킹(60%) 2x 추가
-        for _ in range(2):
-            mx = train_df[train_df['label'].isin(hard_labels)].copy()
-            mx['text'] = mx['text'].apply(lambda t: _mask_text_partial(t, mask_ratio=0.6))
-            frames.append(mx)
-        aug_df = pd.concat(frames, ignore_index=True)
-        train_ds = DisasterDatasetAug(aug_df, tokenizer, args.max_length, augment=False)
-        sampler  = make_weighted_sampler(aug_df['label'].tolist())
-        cnt = aug_df['label'].value_counts().sort_index()
-        print(f"Masked FT: {len(train_df):,} → {len(aug_df):,}건 (완전마스킹 전체 + 부분마스킹 L2/3/4)")
-        for lbl in range(5):
-            print(f"  Label {lbl}: {cnt.get(lbl, 0):,}건")
+        if args.prebuilt:
+            # 증강이 사전 계산된 경우: train_df = full_mask + partial_mask_1 + partial_mask_2
+            aug_df = train_df
+            train_ds = DisasterDatasetAug(aug_df, tokenizer, args.max_length, augment=False)
+            sampler  = make_weighted_sampler(aug_df['label'].tolist())
+            cnt = aug_df['label'].value_counts().sort_index()
+            print(f"Masked FT (prebuilt): {len(aug_df):,}건")
+            for lbl in range(5):
+                print(f"  Label {lbl}: {cnt.get(lbl, 0):,}건")
+        else:
+            from dataset_v2 import _mask_text, _mask_text_partial
+            hard_labels = {2, 3, 4}
+            frames = []
+            # 전체 레이블: 완전마스킹 1x (원본 제거)
+            mf = train_df.copy(); mf['text'] = mf['text'].apply(_mask_text)
+            frames.append(mf)
+            # Label 2/3/4: 부분마스킹(60%) 2x 추가
+            for _ in range(2):
+                mx = train_df[train_df['label'].isin(hard_labels)].copy()
+                mx['text'] = mx['text'].apply(lambda t: _mask_text_partial(t, mask_ratio=0.6))
+                frames.append(mx)
+            aug_df = pd.concat(frames, ignore_index=True)
+            train_ds = DisasterDatasetAug(aug_df, tokenizer, args.max_length, augment=False)
+            sampler  = make_weighted_sampler(aug_df['label'].tolist())
+            cnt = aug_df['label'].value_counts().sort_index()
+            print(f"Masked FT: {len(train_df):,} → {len(aug_df):,}건 (완전마스킹 전체 + 부분마스킹 L2/3/4)")
+            for lbl in range(5):
+                print(f"  Label {lbl}: {cnt.get(lbl, 0):,}건")
     elif args.asym_aug:
         from dataset_v2 import _mask_text
         # Label 0/1: 원본 + 마스킹×1 = 2x
@@ -386,7 +441,13 @@ def main():
     else:
         print(f"\n모델 로드 중: {args.model_name}")
         model = build_model(num_labels=5, model_name=args.model_name).to(device)
-    criterion = FocalLoss(gamma=2.0, label_smoothing=args.label_smoothing)
+    if args.class_weight:
+        import torch.nn as nn
+        cw = torch.tensor([float(x) for x in args.class_weight.split(',')], dtype=torch.float).to(device)
+        criterion = nn.CrossEntropyLoss(weight=cw, label_smoothing=args.label_smoothing)
+        print(f"Criterion: CrossEntropyLoss+weight {args.class_weight}")
+    else:
+        criterion = FocalLoss(gamma=2.0, label_smoothing=args.label_smoothing)
     optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
 
     total_steps  = len(train_loader) * args.epochs

@@ -20,8 +20,8 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, '완성 모델', 'src'))
 
-MODEL_DIR    = os.path.join(ROOT, 'model_v9n')
-TOK_DIR      = os.path.join(ROOT, 'tokenizer_v9n')
+MODEL_DIR    = os.path.join(ROOT, 'model_v10')
+TOK_DIR      = os.path.join(ROOT, 'tokenizer_v10')
 OOD_STATS    = os.path.join(ROOT, '실험', 'ood_stats.pt')
 MAX_LEN      = 128
 
