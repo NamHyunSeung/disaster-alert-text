@@ -25,10 +25,10 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from dataset_v2 import load_and_split_v2, DisasterDatasetAug
 from ood_detector import MahalanobisOOD, extract_cls_batch
 
-MODEL_DIR   = os.path.join(ROOT, 'model_v10')
-TOK_DIR     = os.path.join(ROOT, 'tokenizer_v10')
+MODEL_DIR   = os.path.join(ROOT, 'model_v9n')
+TOK_DIR     = os.path.join(ROOT, '완성 모델', 'src', 'tokenizer')
 DATA_PATH   = os.path.join(ROOT, '중요파일', 'data', 'raw',
-                            '재난문자_레이블링결과_dedup_v3.xlsx')
+                            '재난문자_레이블링결과_dedup_v2.xlsx')
 SAVE_PATH   = os.path.join(ROOT, '실험', 'ood_stats.pt')
 BATCH_SIZE  = 64
 MAX_LEN     = 128
