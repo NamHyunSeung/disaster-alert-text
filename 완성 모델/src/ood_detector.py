@@ -3,32 +3,32 @@ Mahalanobis Distance 기반 OOD(Out-of-Distribution) 탐지기.
 
 학습 데이터의 클래스별 CLS 임베딩 분포를 기억해두고,
 추론 시 입력이 그 분포에서 얼마나 벗어났는지를 Mahalanobis 거리로 측정한다.
-거리가 threshold를 초과하면 OOD로 간주하고 안전을 위해 최소 L3으로 상향한다.
+클래스별 threshold를 사용해 nearest class 기준으로 OOD를 판정한다.
 """
 
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 NUM_CLASSES = 5
-SAFE_FLOOR   = 4   # OOD 감지 시 최대 긴급 등급으로 올림 (미지의 재난 = 최고 위험 가정)
+SAFE_FLOOR  = 4   # OOD 감지 시 최대 긴급 등급으로 올림 (미지의 재난 = 최고 위험 가정)
 
 
 class MahalanobisOOD:
     """
     fit()으로 학습 임베딩을 받아 클래스별 평균 + 공유 역공분산을 계산.
-    score()로 새 임베딩의 Mahalanobis 거리를 반환.
+    fit_class_thresholds()로 클래스별 OOD 경계를 학습 데이터 분포에서 결정.
     conservative_predict()로 OOD 여부를 반영한 보수적 예측 레이블을 반환.
     """
 
     def __init__(self, threshold: float = 50.0):
-        self.threshold   = threshold
-        self.class_means: Optional[torch.Tensor] = None   # (C, D)
-        self.inv_cov:     Optional[torch.Tensor] = None   # (D, D)
+        self.threshold         = threshold                          # 글로벌 fallback
+        self.class_thresholds: Optional[List[float]] = None        # 클래스별 threshold
+        self.class_means:      Optional[torch.Tensor] = None       # (C, D)
+        self.inv_cov:          Optional[torch.Tensor] = None       # (D, D)
         self._fitted = False
 
     # ------------------------------------------------------------------
@@ -36,10 +36,6 @@ class MahalanobisOOD:
     # ------------------------------------------------------------------
 
     def fit(self, embeddings: torch.Tensor, labels: torch.Tensor) -> "MahalanobisOOD":
-        """
-        embeddings: (N, D) float32 — CLS 벡터
-        labels:     (N,)   long    — 0~4 클래스
-        """
         embeddings = embeddings.float()
         D = embeddings.shape[1]
         means = []
@@ -58,61 +54,96 @@ class MahalanobisOOD:
         self.class_means = torch.stack(means, dim=0)  # (C, D)
 
         if centered_all:
-            all_centered = torch.cat(centered_all, dim=0)  # (N, D)
+            all_centered = torch.cat(centered_all, dim=0)
             cov = (all_centered.T @ all_centered) / (all_centered.shape[0] - 1 + 1e-6)
-            # 수치 안정성: ridge regularization
             cov = cov + 1e-4 * torch.eye(D)
-            self.inv_cov = torch.linalg.inv(cov)  # (D, D)
+            self.inv_cov = torch.linalg.inv(cov)
         else:
             self.inv_cov = torch.eye(D)
 
         self._fitted = True
         return self
 
+    def fit_class_thresholds(
+        self,
+        embeddings: torch.Tensor,
+        labels: torch.Tensor,
+        keep_pct: float = 0.95,
+    ) -> "MahalanobisOOD":
+        """
+        클래스별로 학습 샘플의 Mahalanobis 거리 분포를 계산하고
+        keep_pct 백분위수를 각 클래스의 threshold로 설정한다.
+        nearest class가 c인 샘플의 거리가 class_thresholds[c]를 초과하면 OOD.
+        """
+        assert self._fitted, "fit()을 먼저 호출하세요"
+        # 전체 배치 거리를 벡터화하여 계산 (118K 샘플도 빠름)
+        min_dists, nearest_classes = self._distances_batch(embeddings)
+
+        class_thresholds = []
+        print("  클래스별 threshold (학습 데이터 기준):")
+        for c in range(NUM_CLASSES):
+            # nearest class가 c인 학습 샘플들의 거리 분포
+            mask = nearest_classes == c
+            if mask.sum() == 0:
+                class_thresholds.append(self.threshold)
+                print(f"    L{c}: 샘플 없음 → fallback {self.threshold:.2f}")
+                continue
+            dists_c = min_dists[mask].numpy()
+            thr = float(np.percentile(dists_c, keep_pct * 100))
+            class_thresholds.append(thr)
+            print(f"    L{c}: n={mask.sum():5d}  p50={np.percentile(dists_c,50):.2f}"
+                  f"  p95={np.percentile(dists_c,95):.2f}  p99={np.percentile(dists_c,99):.2f}"
+                  f"  → threshold={thr:.2f}")
+
+        self.class_thresholds = class_thresholds
+        return self
+
     # ------------------------------------------------------------------
     # 추론
     # ------------------------------------------------------------------
 
-    def score(self, embedding: torch.Tensor) -> Tuple[float, int]:
-        """
-        embedding: (D,) — 단일 샘플의 CLS 벡터
-        반환: (최소 Mahalanobis 거리, 가장 가까운 클래스)
-        """
-        assert self._fitted, "fit()을 먼저 호출하세요"
-        embedding = embedding.float().cpu()
-        inv_cov   = self.inv_cov.float().cpu()
-        means     = self.class_means.float().cpu()
+    def _distances_batch(
+        self, embeddings: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """(N,D) 배치에 대해 (min_dist, nearest_class)를 벡터화 계산."""
+        emb = embeddings.float().cpu()
+        inv = self.inv_cov.float().cpu()
+        mu  = self.class_means.float().cpu()
 
-        min_dist = float('inf')
-        nearest  = 0
+        # all_dists: (N, C)
+        all_dists = torch.zeros(emb.shape[0], NUM_CLASSES)
         for c in range(NUM_CLASSES):
-            diff = embedding - means[c]  # (D,)
-            d2   = (diff @ inv_cov @ diff).item()
-            dist = d2 ** 0.5
-            if dist < min_dist:
-                min_dist = dist
-                nearest  = c
-        return min_dist, nearest
+            diff = emb - mu[c]              # (N, D)
+            d2   = ((diff @ inv) * diff).sum(dim=1)  # (N,)
+            all_dists[:, c] = d2.clamp(min=0).sqrt()
+
+        min_dists, nearest = all_dists.min(dim=1)
+        return min_dists, nearest
+
+    def score(self, embedding: torch.Tensor) -> Tuple[float, int]:
+        """단일 샘플. 반환: (최소 Mahalanobis 거리, nearest class)"""
+        assert self._fitted, "fit()을 먼저 호출하세요"
+        min_dists, nearest = self._distances_batch(embedding.unsqueeze(0))
+        return min_dists[0].item(), nearest[0].item()
+
+    def _threshold_for(self, nearest_class: int) -> float:
+        if self.class_thresholds is not None:
+            return self.class_thresholds[nearest_class]
+        return self.threshold
 
     def is_ood(self, embedding: torch.Tensor) -> bool:
-        dist, _ = self.score(embedding)
-        return dist > self.threshold
+        dist, nearest = self.score(embedding)
+        return dist > self._threshold_for(nearest)
 
     def conservative_predict(
         self,
         embedding: torch.Tensor,
         base_pred: int,
     ) -> Tuple[int, bool, float]:
-        """
-        OOD 탐지 후 보수적 예측 반환.
-        반환: (최종 예측 레이블, OOD 여부, Mahalanobis 거리)
-        """
-        dist, _ = self.score(embedding)
-        ood = dist > self.threshold
-        if ood and base_pred < SAFE_FLOOR:
-            final = SAFE_FLOOR
-        else:
-            final = base_pred
+        """반환: (최종 예측 레이블, OOD 여부, Mahalanobis 거리)"""
+        dist, nearest = self.score(embedding)
+        ood = dist > self._threshold_for(nearest)
+        final = SAFE_FLOOR if (ood and base_pred < SAFE_FLOOR) else base_pred
         return final, ood, dist
 
     # ------------------------------------------------------------------
@@ -121,18 +152,20 @@ class MahalanobisOOD:
 
     def save(self, path: str | Path) -> None:
         torch.save({
-            'class_means': self.class_means,
-            'inv_cov':     self.inv_cov,
-            'threshold':   self.threshold,
+            'class_means':      self.class_means,
+            'inv_cov':          self.inv_cov,
+            'threshold':        self.threshold,
+            'class_thresholds': self.class_thresholds,
         }, path)
 
     @classmethod
     def load(cls, path: str | Path) -> "MahalanobisOOD":
         data = torch.load(path, map_location='cpu')
         obj  = cls(threshold=data['threshold'])
-        obj.class_means = data['class_means']
-        obj.inv_cov     = data['inv_cov']
-        obj._fitted     = True
+        obj.class_means      = data['class_means']
+        obj.inv_cov          = data['inv_cov']
+        obj.class_thresholds = data.get('class_thresholds')
+        obj._fitted          = True
         return obj
 
 
