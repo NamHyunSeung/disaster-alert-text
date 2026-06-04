@@ -123,12 +123,12 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
                        curriculum_mask=False, alpha_masked=1.0, lambda_con=0.0):
     """CE(원본) + CE(마스킹) + α×KL: masked text에서 직접 정답 지도 + 분포 일관성"""
     from dataset_v2 import _mask_text, _mask_text_partial
-    from sklearn.metrics import f1_score, recall_score
+    from sklearn.metrics import f1_score, precision_recall_fscore_support
     model.train()
     total_loss = 0.0
     epoch_start = time.time()
     milestones_done = set()
-    run_preds, run_labels = [], []
+    run_preds_orig, run_preds_masked, run_labels = [], [], []
 
     print(f"[MILESTONE] Epoch {epoch}/{total_epochs} 0% (0/{len(loader)})", flush=True)
 
@@ -191,7 +191,8 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
         total_loss += loss.item()
         avg_loss = total_loss / step
 
-        run_preds.extend(logits_orig.argmax(dim=-1).cpu().numpy())
+        run_preds_orig.extend(logits_orig.argmax(dim=-1).cpu().numpy())
+        run_preds_masked.extend(logits_masked.argmax(dim=-1).cpu().numpy())
         run_labels.extend(lbls.cpu().numpy())
 
         elapsed = time.time() - epoch_start
@@ -199,18 +200,25 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
         pbar.set_postfix({'loss': f'{avg_loss:.4f}', '배치ETA': fmt_time(eta_epoch)})
 
         pct = step / len(loader)
-        for m, label in [(0.25, '25%'), (0.50, '50%'), (0.75, '75%')]:
+        for m, label in [(0.25, '25%'), (0.50, '50%'), (0.75, '75%'), (1.00, '100%')]:
             if pct >= m and m not in milestones_done:
-                macro_f1 = f1_score(run_labels, run_preds, average='macro', zero_division=0)
-                f1_per   = f1_score(run_labels, run_preds, average=None, labels=[0,1,2,3,4], zero_division=0)
-                rec_per  = recall_score(run_labels, run_preds, average=None, labels=[0,1,2,3,4], zero_division=0)
+                p_o, r_o, f_o, _ = precision_recall_fscore_support(
+                    run_labels, run_preds_orig,   labels=[0,1,2,3,4], zero_division=0)
+                p_m, r_m, f_m, _ = precision_recall_fscore_support(
+                    run_labels, run_preds_masked, labels=[0,1,2,3,4], zero_division=0)
+                mf1o = f1_score(run_labels, run_preds_orig,   average='macro', zero_division=0)
+                mf1m = f1_score(run_labels, run_preds_masked, average='macro', zero_division=0)
+                mro  = np.mean(r_o)
+                mrm  = np.mean(r_m)
+                cls_o = '  '.join(f'L{i} F1={f_o[i]*100:.1f}%/R={r_o[i]*100:.1f}%' for i in range(5))
+                cls_m = '  '.join(f'L{i} F1={f_m[i]*100:.1f}%/R={r_m[i]*100:.1f}%' for i in range(5))
                 print(
                     f"\n[MILESTONE] Epoch {epoch}/{total_epochs} {label}"
-                    f" (step {step}/{len(loader)}, loss {avg_loss:.4f},"
-                    f" train macro F1={macro_f1*100:.1f}%)"
-                    f"\n  L2 F1={f1_per[2]*100:.1f}%/R={rec_per[2]*100:.1f}%"
-                    f"  L3 F1={f1_per[3]*100:.1f}%/R={rec_per[3]*100:.1f}%"
-                    f"  L4 F1={f1_per[4]*100:.1f}%/R={rec_per[4]*100:.1f}%",
+                    f" (step {step}/{len(loader)}, loss {avg_loss:.4f})"
+                    f"\n  [일반]   MacroF1={mf1o*100:.2f}%  MacroR={mro*100:.2f}%"
+                    f"\n    {cls_o}"
+                    f"\n  [마스킹] MacroF1={mf1m*100:.2f}%  MacroR={mrm*100:.2f}%"
+                    f"\n    {cls_m}",
                     flush=True
                 )
                 milestones_done.add(m)
@@ -288,6 +296,8 @@ def main():
                         help='Label smoothing for FocalLoss (default 0.0)')
     parser.add_argument('--prebuilt', type=str, default=None,
                         help='전처리 완료 parquet 경로 (build_preprocessed.py 출력); 지정 시 on-the-fly 마스킹 생략')
+    parser.add_argument('--early_stop_patience', type=int, default=3,
+                        help='조기 종료 patience (기본 3, 0=비활성)')
     args = parser.parse_args()
 
     if args.masked_ft and args.lr == 2e-5:
@@ -458,9 +468,10 @@ def main():
     print(f"키워드 마스킹 확률: {args.mask_prob*100:.0f}%")
     print("※ GPU 기준 에폭당 약 13~17분 예상\n")
 
-    log_records = []
-    best_f1     = 0.0
-    total_start = time.time()
+    log_records   = []
+    best_f1       = 0.0
+    es_no_improve = 0
+    total_start   = time.time()
 
     for epoch in range(1, args.epochs + 1):
         ep_start = time.time()
@@ -541,8 +552,15 @@ def main():
 
         if save_f1 > best_f1:
             best_f1 = save_f1
+            es_no_improve = 0
             model.save_pretrained(args.model_dir)
             print(f"  >> Best model 저장 ({crit_label})")
+        elif args.early_stop_patience > 0:
+            es_no_improve += 1
+            print(f"  [EarlyStopping] 개선 없음 {es_no_improve}/{args.early_stop_patience}")
+            if es_no_improve >= args.early_stop_patience:
+                print(f"  [EarlyStopping] {args.early_stop_patience} 에폭 연속 개선 없음 → 학습 종료")
+                break
 
     tag = args.model_dir.replace('/', '_').replace('\\', '_')
     log_csv     = f'results/train_log_{tag}.csv'
