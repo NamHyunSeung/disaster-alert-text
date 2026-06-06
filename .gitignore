@@ -39,6 +39,16 @@ model_v9k/
 model_v9l/
 model_v9m/
 model_v9o/
+# OOD 실험 중간 모델 (v10~v18)
+model_v10/
+model_v11/
+model_v12/
+model_v13/
+model_v14/
+model_v15/
+model_v16/
+model_v17/
+model_v18/
 tokenizer/
 tokenizer_v5/
 tokenizer_v6/
@@ -57,6 +67,16 @@ tokenizer_v9k/
 tokenizer_v9l/
 tokenizer_v9m/
 tokenizer_v9o/
+# dedup 재학습 중간 토크나이저 (v10~v11)
+tokenizer_v10/
+tokenizer_v11/
+
+# 개인 파일 / 보관용
+4,done
+보낼거/
+
+# 전처리된 데이터
+중요파일/data/processed/
 
 # 대용량 로그/결과 파일
 train_v5.log

@@ -120,15 +120,20 @@ def supcon_loss(embeddings, labels, temperature=0.1):
 
 def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
                        epoch, total_epochs, tokenizer, max_length, alpha, use_ce_masked=True,
-                       curriculum_mask=False, alpha_masked=1.0, lambda_con=0.0):
+                       curriculum_mask=False, alpha_masked=1.0, lambda_con=0.0,
+                       milestone_log_path=None):
     """CE(원본) + CE(마스킹) + α×KL: masked text에서 직접 정답 지도 + 분포 일관성"""
     from dataset_v2 import _mask_text, _mask_text_partial
-    from sklearn.metrics import f1_score, precision_recall_fscore_support
+    from sklearn.metrics import f1_score, precision_recall_fscore_support, r2_score, accuracy_score
     model.train()
     total_loss = 0.0
     epoch_start = time.time()
     milestones_done = set()
     run_preds_orig, run_preds_masked, run_labels = [], [], []
+    class_ce_sums     = [0.0] * 5
+    class_ce_counts   = [0]   * 5
+    class_ce_sums_m   = [0.0] * 5
+    class_ce_counts_m = [0]   * 5
 
     print(f"[MILESTONE] Epoch {epoch}/{total_epochs} 0% (0/{len(loader)})", flush=True)
 
@@ -145,6 +150,13 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
         # 원본 forward
         logits_orig = model(input_ids=ids, attention_mask=attn, token_type_ids=ttids).logits
         ce_orig = criterion(logits_orig, lbls)
+        with torch.no_grad():
+            _ce_per = F.cross_entropy(logits_orig.detach(), lbls, reduction='none')
+            for _c in range(5):
+                _mc = (lbls == _c)
+                if _mc.any():
+                    class_ce_sums[_c] += _ce_per[_mc].sum().item()
+                    class_ce_counts[_c] += _mc.sum().item()
 
         # 마스킹 텍스트 생성 + 재토크나이징 (curriculum: 배치마다 랜덤 마스킹 비율)
         if curriculum_mask:
@@ -170,6 +182,13 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
 
         # CE_masked: masked text에서 정답 레이블로 직접 지도 (핵심)
         ce_masked = criterion(logits_masked, lbls) if use_ce_masked else 0.0
+        with torch.no_grad():
+            _ce_per_m = F.cross_entropy(logits_masked.detach(), lbls, reduction='none')
+            for _c in range(5):
+                _mc = (lbls == _c)
+                if _mc.any():
+                    class_ce_sums_m[_c] += _ce_per_m[_mc].sum().item()
+                    class_ce_counts_m[_c] += _mc.sum().item()
 
         # KL consistency: masked 예측 분포 → 원본 예측 분포에 맞추기
         p_orig  = F.softmax(logits_orig.detach(), dim=-1)
@@ -202,25 +221,53 @@ def train_one_epoch_v9(model, loader, optimizer, scheduler, criterion, device,
         pct = step / len(loader)
         for m, label in [(0.25, '25%'), (0.50, '50%'), (0.75, '75%'), (1.00, '100%')]:
             if pct >= m and m not in milestones_done:
-                p_o, r_o, f_o, _ = precision_recall_fscore_support(
-                    run_labels, run_preds_orig,   labels=[0,1,2,3,4], zero_division=0)
-                p_m, r_m, f_m, _ = precision_recall_fscore_support(
-                    run_labels, run_preds_masked, labels=[0,1,2,3,4], zero_division=0)
-                mf1o = f1_score(run_labels, run_preds_orig,   average='macro', zero_division=0)
-                mf1m = f1_score(run_labels, run_preds_masked, average='macro', zero_division=0)
-                mro  = np.mean(r_o)
-                mrm  = np.mean(r_m)
-                cls_o = '  '.join(f'L{i} F1={f_o[i]*100:.1f}%/R={r_o[i]*100:.1f}%' for i in range(5))
-                cls_m = '  '.join(f'L{i} F1={f_m[i]*100:.1f}%/R={r_m[i]*100:.1f}%' for i in range(5))
-                print(
+                _la = np.array(run_labels)
+                _po = np.array(run_preds_orig)
+                _pm = np.array(run_preds_masked)
+                _, r_o, f_o, _ = precision_recall_fscore_support(
+                    _la, _po, labels=[0,1,2,3,4], zero_division=0)
+                _, r_m, f_m, _ = precision_recall_fscore_support(
+                    _la, _pm, labels=[0,1,2,3,4], zero_division=0)
+                mf1o = f1_score(_la, _po, average='macro', zero_division=0)
+                mf1m = f1_score(_la, _pm, average='macro', zero_division=0)
+                cls_loss_o = [class_ce_sums[c] / max(class_ce_counts[c], 1) for c in range(5)]
+                cls_loss_m = [class_ce_sums_m[c] / max(class_ce_counts_m[c], 1) for c in range(5)]
+                r2_o_list, acc_o_list, r2_m_list, acc_m_list = [], [], [], []
+                for c in range(5):
+                    y_t  = (_la == c).astype(int)
+                    y_po = (_po == c).astype(int)
+                    y_pm = (_pm == c).astype(int)
+                    try:
+                        r2_o_list.append(r2_score(y_t, y_po))
+                    except Exception:
+                        r2_o_list.append(float('nan'))
+                    try:
+                        r2_m_list.append(r2_score(y_t, y_pm))
+                    except Exception:
+                        r2_m_list.append(float('nan'))
+                    acc_o_list.append(accuracy_score(y_t, y_po))
+                    acc_m_list.append(accuracy_score(y_t, y_pm))
+                hdr = (
                     f"\n[MILESTONE] Epoch {epoch}/{total_epochs} {label}"
-                    f" (step {step}/{len(loader)}, loss {avg_loss:.4f})"
-                    f"\n  [일반]   MacroF1={mf1o*100:.2f}%  MacroR={mro*100:.2f}%"
-                    f"\n    {cls_o}"
-                    f"\n  [마스킹] MacroF1={mf1m*100:.2f}%  MacroR={mrm*100:.2f}%"
-                    f"\n    {cls_m}",
-                    flush=True
+                    f" (step {step}/{len(loader)}, loss {avg_loss:.4f})\n"
+                    f"  {'':8s} {'Loss':>8s} {'F1':>8s} {'Recall':>8s} {'R2':>8s} {'Acc':>8s}"
                 )
+                rows_o = [f"  [일반]   MacroF1={mf1o*100:.2f}%  MacroR={np.mean(r_o)*100:.2f}%"]
+                rows_m = [f"  [마스킹] MacroF1={mf1m*100:.2f}%  MacroR={np.mean(r_m)*100:.2f}%"]
+                for i in range(5):
+                    _ro = f"{r2_o_list[i]*100:.1f}%" if not np.isnan(r2_o_list[i]) else "  N/A "
+                    _rm = f"{r2_m_list[i]*100:.1f}%" if not np.isnan(r2_m_list[i]) else "  N/A "
+                    rows_o.append(
+                        f"  L{i}:     {cls_loss_o[i]:>8.4f} {f_o[i]*100:>7.1f}%"
+                        f" {r_o[i]*100:>7.1f}% {_ro:>8s} {acc_o_list[i]*100:>7.1f}%")
+                    rows_m.append(
+                        f"  L{i}:     {cls_loss_m[i]:>8.4f} {f_m[i]*100:>7.1f}%"
+                        f" {r_m[i]*100:>7.1f}% {_rm:>8s} {acc_m_list[i]*100:>7.1f}%")
+                msg = hdr + "\n" + "\n".join(rows_o) + "\n" + "\n".join(rows_m)
+                print(msg, flush=True)
+                if milestone_log_path:
+                    with open(milestone_log_path, 'a', encoding='utf-8') as _f:
+                        _f.write(msg + "\n")
                 milestones_done.add(m)
 
     return total_loss / len(loader)
@@ -473,6 +520,14 @@ def main():
     es_no_improve = 0
     total_start   = time.time()
 
+    _model_name = os.path.basename(os.path.normpath(args.model_dir))
+    _mlog_dir = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'results')
+    )
+    os.makedirs(_mlog_dir, exist_ok=True)
+    milestone_log_path = os.path.join(_mlog_dir, f'milestone_log_{_model_name}.txt')
+    print(f"마일스톤 로그 → {milestone_log_path}", flush=True)
+
     for epoch in range(1, args.epochs + 1):
         ep_start = time.time()
 
@@ -484,6 +539,7 @@ def main():
                 curriculum_mask=args.curriculum_mask,
                 alpha_masked=args.alpha_masked,
                 lambda_con=args.lambda_con,
+                milestone_log_path=milestone_log_path,
             )
         else:
             train_loss = train_one_epoch(
