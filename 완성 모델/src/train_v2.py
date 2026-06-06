@@ -345,6 +345,8 @@ def main():
                         help='전처리 완료 parquet 경로 (build_preprocessed.py 출력); 지정 시 on-the-fly 마스킹 생략')
     parser.add_argument('--early_stop_patience', type=int, default=3,
                         help='조기 종료 patience (기본 3, 0=비활성)')
+    parser.add_argument('--warmup_ratio', type=float, default=0.10,
+                        help='Warmup 비율 (기본 0.10 = 10%%)')
     args = parser.parse_args()
 
     if args.masked_ft and args.lr == 2e-5:
@@ -508,7 +510,7 @@ def main():
     optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
 
     total_steps  = len(train_loader) * args.epochs
-    warmup_steps = int(total_steps * 0.10)
+    warmup_steps = int(total_steps * args.warmup_ratio)
     scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
     print(f"\n총 {total_steps:,} 스텝 ({args.epochs} 에폭 × {len(train_loader):,} 배치)")
