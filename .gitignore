@@ -7,6 +7,7 @@
 # 대용량 데이터
 *.xlsx
 *.csv
+*.npz
 
 # 이전 모델 디렉토리
 klue_bert_model/

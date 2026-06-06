@@ -7,7 +7,7 @@ v22 + KNN-OOD 필터링 파이프라인.
 실행: python predict_v22_knn_filter.py
 """
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '완성 모델', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '완성 모델', 'src'))
 
 import torch
 import torch.nn.functional as F
@@ -15,10 +15,10 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from sklearn.neighbors import NearestNeighbors
 
-MODEL_DIR  = "model_v22"
-TOK_DIR    = "tokenizer_v22"
-EMB_FILE   = "실험/knn_ood_v22.npz"
-META_FILE  = "실험/knn_ood_v22_meta.pt"
+MODEL_DIR  = "model"
+TOK_DIR    = "tokenizer"
+EMB_FILE   = "ood/knn_ood_v22.npz"
+META_FILE  = "ood/knn_ood_v22_meta.pt"
 MAX_LEN    = 96
 
 LABEL_NAMES = ['L0', 'L1', 'L2', 'L3', 'L4']

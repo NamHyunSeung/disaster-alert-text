@@ -42,17 +42,23 @@ KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 + Or
 │   ├── scripts/             # 학습 자동화 파이프라인 (step1~7)
 │   ├── data/                # 데이터 (gitignore: *.xlsx)
 │   └── android_app/         # Android CBS 수신 앱
-├── model_v22/               # 최종 모델 가중치 (gitignore: *.safetensors)
-├── tokenizer_v22/           # 최종 토크나이저 (vocab 35000)
-├── results/                 # 평가 결과 및 학습 로그
+├── pipeline_v22/            # v22 파이프라인 최종 파일 일체
+│   ├── model/               # 모델 가중치 (gitignore: *.safetensors)
+│   ├── tokenizer/           # 토크나이저 (vocab 35000)
+│   ├── ood/                 # KNN OOD 인덱스 (knn_ood_v22.npz, meta.pt, ood_stats.pt)
+│   ├── scripts/             # OOD 재빌드 스크립트
+│   ├── results/             # 평가 결과 txt
+│   ├── evaluate_pipeline.py # 전체 파이프라인 평가 (핵심)
+│   ├── predict_v22_knn_ood.py
+│   ├── predict_v22_knn_filter.py
+│   ├── predict_v22_ood.py
+│   └── llm_cache.json       # LLM 호출 캐시 (Gemini/Groq)
+├── results/                 # 학습 로그
 │   ├── evaluation_report_model_v22.txt   # v22 테스트 평가
 │   ├── milestone_log_model_v22.txt       # v22 에포크별 milestone
 │   └── overfitting_v22.txt               # v22 과적합 모니터링
-├── 실험/                    # 실험용 스크립트 및 이전 모델
-│   ├── predict_full_pipeline.py          # KNN-OOD + confidence 파이프라인
-│   ├── analyze_confidence_threshold.py   # confidence threshold 분석
-│   ├── knn_ood_v22.npz                   # KNN 임베딩 인덱스
-│   └── knn_ood_v22_meta.pt               # KNN 메타데이터
+├── 실험/                    # 실험용 스크립트 (이전 모델 포함)
+│   └── predict_full_pipeline.py          # KNN-OOD + confidence 파이프라인 (구버전)
 └── .gitignore
 ```
 
@@ -137,17 +143,22 @@ L_total = CE(원본) + α_masked × CE(마스킹) + α_kl × KL(p_원본 ∥ p_�
      │YES → "OOD 거부" (신종 재난 / 비재난)
      │NO
      ▼
-[2단계] Confidence Threshold (85%)
- softmax 최댓값 < 0.85?
-     │YES → LLM fallback (판단 유보)
+[2단계] Confidence Threshold (70%, Temperature Scaling T=1.5)
+ temperature-scaled softmax 최댓값 < 0.70?
+     │YES → LLM fallback
+     │        Gemini 2.5-flash (1순위) → Groq llama-3.3-70b (2순위, quota 소진 시 skip)
+     │        20건 배치 처리 / 결과 llm_cache.json 캐싱
      │NO
      ▼
 [3단계] v22 분류
      → L0 / L1 / L2 / L3 / L4 출력
 ```
 
-**KNN OOD 파라미터**: K=20, cosine distance, p99 class-level threshold  
-**p99 threshold**: L0=0.018056, L1=0.015686, L2=0.014583, L3=0.007599, L4=0.003537
+**KNN OOD 파라미터**: K=20, cosine distance, brute force, p99 class-level threshold  
+**p99 threshold**: L0=0.018056, L1=0.015686, L2=0.014583, L3=0.007599, L4=0.003537  
+**Temperature Scaling**: T=1.5 (confidence 보정)  
+**Confidence Threshold**: 0.70 (70%)  
+**LLM Fallback**: Gemini 2.5-flash → Groq llama-3.3-70b-versatile, 20건 배치, `llm_cache.json` 캐싱
 
 ---
 
@@ -217,10 +228,10 @@ pandas, openpyxl
 | model_v9e ~ model_v9o | KoELECTRA v3 | tokenizer_v9e ~ tokenizer_v9o | 35000 | ✓ |
 | model_v9n | KoELECTRA v3 | tokenizer_v9n | 35000 | ✓ |
 | model_v19 ~ model_v21 | KoELECTRA v3 | tokenizer_v20 ~ tokenizer_v21 | 35000 | ✓ |
-| **model_v22 (최종)** | **KoELECTRA v3** | **tokenizer_v22** | **35000** | **✓** |
+| **pipeline_v22/model (최종)** | **KoELECTRA v3** | **pipeline_v22/tokenizer** | **35000** | **✓** |
 
 > v9~v9d는 실험 중 잘못된 토크나이저(vocab=32000)가 저장된 오류 버전 — 추론 시 사용 불가.  
-> **실제 사용 가능한 최종 모델: `model_v22` + `tokenizer_v22`**
+> **실제 사용 가능한 최종 모델: `pipeline_v22/model` + `pipeline_v22/tokenizer`**
 
 ---
 
@@ -437,5 +448,48 @@ v22 완성 후 **신종 재난 / 비재난 텍스트 탐지** 시스템 구축.
 **한계**: 신종감염병 문자(#13)가 ID로 판정되어 OOD 탐지 실패 — 훈련 데이터에 유사한 합성 감염병 문자가 있어 분포 내로 인식됨. Confidence threshold로도 해결 불가 (모델이 85~95% 확신으로 오분류).
 
 ---
+
+---
+
+### 단계 12: evaluate_pipeline.py 버그 수정 3건 + 파이프라인 평가
+
+#### 수정 사항
+
+1. **`_groq_exhausted` 플래그 추가**: Groq 429 오류 첫 발생 시 이후 배치 모두 skip — 나머지 배치(22배치 × 2.5초)에서 반복 오류 호출 제거
+2. **캐시 중간 저장**: 전체 완료 후 1회 저장 → 5배치마다 `save_cache()` 호출로 변경 — 중단 시 캐시 유실 방지
+3. **dead code 삭제**: 배치 전환 후 사용되지 않는 단건 처리 함수 4개 (`_parse_label`, `call_gemini`, `call_groq_llm`, `call_llm`) 제거
+
+#### 파이프라인 평가 결과 (T=1.5, CONF_THR=0.70, test set 20,549건)
+
+| 구분 | Accuracy | MacroF1 |
+|------|---------|---------|
+| **전체 파이프라인** | **99.21%** | **98.65%** |
+| v22 단독 (LLM 없음) | 99.26% | 98.73% |
+| v22 직접 분류 (20,103건) | 99.82% | — |
+| LLM 대상 (446건) | 71.97% | — |
+
+> LLM 대상 446건 중 20건만 처리됨 (Gemini quota 소진, Groq TPD 99,400/100,000 초과) → 나머지 426건은 v22 예측 사용  
+> LLM quota 완전 활용 시 전체 파이프라인 성능이 v22 단독(99.26%) 초과 예상
+
+---
+
+### 단계 13: v22 관련 파일 `pipeline_v22/` 통합 정리 (앱 개발 준비)
+
+프로젝트 루트·`실험/` 폴더에 분산된 v22 관련 파일(모델, 토크나이저, OOD 인덱스, 스크립트, 결과)을  
+`pipeline_v22/` 단일 폴더로 통합. 각 스크립트의 내부 경로도 새 구조에 맞게 일괄 수정.
+
+```
+pipeline_v22/
+├── model/               ← model_v22/ (이동)
+├── tokenizer/           ← tokenizer_v22/ (이동)
+├── ood/                 ← 실험/knn_ood_v22.{npz,pt} + ood_stats_v22.pt (이동)
+├── scripts/             ← 실험/build_knn_ood_v22.py, build_ood_detector_v22.py (이동)
+├── results/             ← 각 predict 결과 txt (이동)
+├── evaluate_pipeline.py
+├── predict_v22_knn_ood.py
+├── predict_v22_knn_filter.py
+├── predict_v22_ood.py
+└── llm_cache.json
+```
 
 실험용 스크립트는 `실험/` 폴더 참고.
