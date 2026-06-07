@@ -13,7 +13,7 @@
 klue_bert_model/
 koelectra_model/
 koelectra_v2_model/
-중요파일/koelectra_v3_model/
+core_files/koelectra_v3_model/
 
 # 실험용 모델/토크나이저 디렉토리 (최종: model_v9n, tokenizer_v9n)
 model/
@@ -77,7 +77,7 @@ tokenizer_v11/
 보낼거/
 
 # 전처리된 데이터
-중요파일/data/processed/
+core_files/data/processed/
 
 # 대용량 로그/결과 파일
 train_v5.log
@@ -86,10 +86,10 @@ results_output.txt
 results_perclass.txt
 
 # 빌드 산출물
-중요파일/android_app/build/
-중요파일/android_app/app/build/
-중요파일/android_app/.gradle/
-중요파일/android_app/local.properties
+core_files/android_app/build/
+core_files/android_app/app/build/
+core_files/android_app/.gradle/
+core_files/android_app/local.properties
 
 # 개인 메모
 내용.txt
