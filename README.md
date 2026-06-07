@@ -1,5 +1,17 @@
 # 재난문자 긴급도 분류 모델
 
+## Summary (English)
+
+A deep learning model that automatically classifies
+Korean disaster alert messages (CBS) into 5 urgency
+levels (L0~L4). Based on KoELECTRA v3 with keyword
+masking augmentation, 3-component loss, and Ordinal
+Label Smoothing.
+**Final performance (v22):** Macro F1 = 98.75%,
+Accuracy = 99.27% on 20,549 test samples.
+
+---
+
 한국 재난문자(CBS)를 **5단계 긴급도(L0~L4)**로 자동 분류하는 딥러닝 모델.  
 KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 + Ordinal Label Smoothing 적용.
 
@@ -24,7 +36,7 @@ KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 + Or
 
 ```
 프로젝트/
-├── 완성 모델/               # 최종 모델 관련 파일
+├── final_model/             # 최종 모델 관련 파일
 │   ├── src/
 │   │   ├── dataset.py       # 텍스트 전처리
 │   │   ├── dataset_v2.py    # 키워드 마스킹 데이터셋
@@ -33,7 +45,7 @@ KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 + Or
 │   │   ├── utils.py         # 평가 지표 계산
 │   │   └── train_v2.py      # 학습 스크립트
 │   └── labeling_criteria.md # 레이블링 기준 문서
-├── 중요파일/
+├── core_files/
 │   ├── server.py            # FastAPI 추론 서버
 │   ├── push_to_hub.py       # HuggingFace Hub 업로드
 │   ├── predict.py           # 단일 추론 스크립트
@@ -57,7 +69,7 @@ KoELECTRA v3 기반, 키워드 마스킹 증강 + 3-component 손실 함수 + Or
 │   ├── evaluation_report_model_v22.txt   # v22 테스트 평가
 │   ├── milestone_log_model_v22.txt       # v22 에포크별 milestone
 │   └── overfitting_v22.txt               # v22 과적합 모니터링
-├── 실험/                    # 실험용 스크립트 (이전 모델 포함)
+├── experiments/             # 실험용 스크립트 (이전 모델 포함)
 │   └── predict_full_pipeline.py          # KNN-OOD + confidence 파이프라인 (구버전)
 └── .gitignore
 ```
@@ -165,8 +177,8 @@ L_total = CE(원본) + α_masked × CE(마스킹) + α_kl × KL(p_원본 ∥ p_�
 ## 학습 명령어 (v22)
 
 ```bash
-python "완성 모델/src/train_v2.py" \
-    --data_path 중요파일/data/raw/재난문자_레이블링결과_dedup_v7.xlsx \
+python "final_model/src/train_v2.py" \
+    --data_path core_files/data/raw/재난문자_레이블링결과_dedup_v7.xlsx \
     --model_dir model_v22 \
     --tok_dir tokenizer_v22 \
     --v9 \
@@ -184,7 +196,7 @@ python "완성 모델/src/train_v2.py" \
 ## 추론 서버 실행
 
 ```bash
-cd 중요파일
+cd core_files
 pip install -r requirements_server.txt
 uvicorn server:app --host 0.0.0.0 --port 8000
 ```
@@ -475,15 +487,15 @@ v22 완성 후 **신종 재난 / 비재난 텍스트 탐지** 시스템 구축.
 
 ### 단계 13: v22 관련 파일 `pipeline_v22/` 통합 정리 (앱 개발 준비)
 
-프로젝트 루트·`실험/` 폴더에 분산된 v22 관련 파일(모델, 토크나이저, OOD 인덱스, 스크립트, 결과)을  
+프로젝트 루트·`experiments/` 폴더에 분산된 v22 관련 파일(모델, 토크나이저, OOD 인덱스, 스크립트, 결과)을  
 `pipeline_v22/` 단일 폴더로 통합. 각 스크립트의 내부 경로도 새 구조에 맞게 일괄 수정.
 
 ```
 pipeline_v22/
 ├── model/               ← model_v22/ (이동)
 ├── tokenizer/           ← tokenizer_v22/ (이동)
-├── ood/                 ← 실험/knn_ood_v22.{npz,pt} + ood_stats_v22.pt (이동)
-├── scripts/             ← 실험/build_knn_ood_v22.py, build_ood_detector_v22.py (이동)
+├── ood/                 ← experiments/knn_ood_v22.{npz,pt} + ood_stats_v22.pt (이동)
+├── scripts/             ← experiments/build_knn_ood_v22.py, build_ood_detector_v22.py (이동)
 ├── results/             ← 각 predict 결과 txt (이동)
 ├── evaluate_pipeline.py
 ├── predict_v22_knn_ood.py
@@ -492,4 +504,4 @@ pipeline_v22/
 └── llm_cache.json
 ```
 
-실험용 스크립트는 `실험/` 폴더 참고.
+실험용 스크립트는 `experiments/` 폴더 참고.
