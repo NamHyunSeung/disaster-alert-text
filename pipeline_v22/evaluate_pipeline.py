@@ -1,7 +1,7 @@
 """
 전체 파이프라인 성능 평가 (원본 테스트셋)
   KNN-OOD 탐지 + Temperature Scaling (T=1.5) + LLM fallback
-  LLM 순서: 1순위 Gemini 2.5 Flash → 할당량 소진 시 2순위 Groq
+  LLM 순서: 1순위 Gemini 2.5 Flash → 2순위 Groq → 3순위 Cerebras (모두 할당량 소진 시 순차 전환)
   LLM 결과 캐시: 실험/llm_cache.json (재실행 시 API 호출 절약)
 
 실행:
@@ -12,6 +12,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '완성 모델', 'src'))
 
 import re, time, argparse, json
+import requests
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -61,6 +62,18 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL   = "llama-3.3-70b-versatile"
 RPM_INTERVAL = 2.5
 
+# Cerebras (3순위 fallback) — cloud.cerebras.ai, OpenAI 호환 REST
+CEREBRAS_API_KEY    = os.environ.get("CEREBRAS_API_KEY", "")
+CEREBRAS_MODEL      = "gpt-oss-120b"
+CEREBRAS_URL        = "https://api.cerebras.ai/v1/chat/completions"
+CEREBRAS_INTERVAL   = 2.0
+
+# OpenRouter (임시 1순위 — Gemini/Groq/Cerebras 모두 소진/장애 상태라 우선 사용) — openrouter.ai, OpenAI 호환 REST
+OPENROUTER_API_KEY  = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL    = "openai/gpt-oss-120b:free"
+OPENROUTER_URL      = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_INTERVAL = 3.0
+
 CACHE_FILE       = "llm_cache.json"
 BATCH_SIZE_LLM   = 20        # 배치 분류 크기 (토큰 절약)
 
@@ -98,6 +111,21 @@ _SYS = """재난문자를 긴급도 L0~L4로 분류하는 전문가입니다.
   판단 힌트: "즉시", "지금 즉시", "즉각", "대피소로", "고지대로", "실내 대피"
   특수 규칙: 방사성·핵·폭발·독성물질 누출은 "접근 금지"만 있어도 L4
 
+【주의: 같은 재난 소재라도 "단계어"에 따라 L0~L4 전 구간에 분포】
+  산불·산사태·폭염·한파·호우·강풍·감염병 등은 표현이 비슷해도 경보 단계에 따라 등급이 갈립니다.
+  문장에 등장하는 단계어를 우선 단서로 삼으세요.
+  예: "관심"/"해제"/단순 통계·신청·동선 안내 → L0
+  예: "주의"·"주의보"·일반 예방 권고("~하세요","~바랍니다") → L1~L2
+  예: "경보"·"위기경보 경계 단계" + 구체적 금지·자제 행동요령 → L2~L3
+  예: "위기경보 심각 단계" 또는 "지금 즉시 대피"형 명령 → L3~L4
+  ※ 감염병(코로나19 등)도 예외 아님: 확진자 수·검사 안내처럼 평범해 보여도
+     "심각 단계", "이동·모임 강력 자제" 등 고강도 표현이 동반되면 L2 이상(드물게 L4)일 수 있음
+
+【주의: 위협 표현 없는 행정·정보성 공지는 기본 L0】
+  순환정전 시행 지역 안내, 확진자 이동경로(동선) 안내, 경보·통제 해제,
+  운행 중단/재개, 지원금·신청 안내, 실종자 수배 등은
+  특별한 위협·행동지시 표현이 없으면 L0으로 분류
+
 【경계 구분 규칙】
   L2 vs L3: L2=기능 마비(생명위협 없음), L3=위험 진행 중 + 신체 자제 권고
   L3 vs L4: L3=자제·주의 권고, L4="즉시/지금 당장" 이동·대피 명령 또는 생명직결 위험 물질
@@ -111,6 +139,12 @@ _gemini_last_call = 0.0
 _groq            = None
 _groq_last_call  = 0.0
 _groq_exhausted  = False
+
+_cerebras_last_call = 0.0
+_cerebras_exhausted = False
+
+_openrouter_last_call = 0.0
+_openrouter_exhausted = False
 
 _llm_cache: dict = {}
 
@@ -142,6 +176,10 @@ def init_llm():
     if _GROQ_AVAILABLE and GROQ_API_KEY:
         _groq = Groq(api_key=GROQ_API_KEY)
         print(f"[LLM] Groq {GROQ_MODEL} 초기화 완료 (2순위 fallback)")
+    if CEREBRAS_API_KEY:
+        print(f"[LLM] Cerebras {CEREBRAS_MODEL} 준비 완료 (3순위 fallback)")
+    if OPENROUTER_API_KEY:
+        print(f"[LLM] OpenRouter {OPENROUTER_MODEL} 준비 완료 (임시 1순위)")
 
 
 def _build_batch_user_msg(texts: list) -> str:
@@ -235,12 +273,112 @@ def call_groq_batch(texts: list) -> list:
         return [-1] * n
 
 
+def call_cerebras_batch(texts: list) -> list:
+    global _cerebras_last_call, _cerebras_exhausted
+    if not CEREBRAS_API_KEY:
+        return [-1] * len(texts)
+    n = len(texts)
+    elapsed = time.time() - _cerebras_last_call
+    if elapsed < CEREBRAS_INTERVAL:
+        time.sleep(CEREBRAS_INTERVAL - elapsed)
+    try:
+        resp = requests.post(
+            CEREBRAS_URL,
+            headers={"Authorization": f"Bearer {CEREBRAS_API_KEY}",
+                     "Content-Type": "application/json"},
+            json={
+                "model": CEREBRAS_MODEL,
+                "messages": [
+                    {"role": "system", "content": _SYS},
+                    {"role": "user",   "content": _build_batch_user_msg(texts)},
+                ],
+                "temperature": 0.0,
+                # gpt-oss-120b는 추론 모델 — reasoning에 토큰을 소모하므로 effort를 낮추고 여유 토큰을 둠
+                "reasoning_effort": "low",
+                "max_tokens": n * 30 + 1000,
+            },
+            timeout=60,
+        )
+        _cerebras_last_call = time.time()
+        if resp.status_code == 429:
+            print(f"  [Cerebras 할당량 소진] 이후 배치 Cerebras 호출 건너뜁니다.")
+            _cerebras_exhausted = True
+            return [-1] * n
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"] or ""
+        return _parse_batch_response(content, n)
+    except Exception as e:
+        _cerebras_last_call = time.time()
+        err = str(e).lower()
+        if "429" in err or "quota" in err or "rate_limit" in err:
+            print(f"  [Cerebras 할당량 소진] 이후 배치 Cerebras 호출 건너뜁니다.")
+            _cerebras_exhausted = True
+        else:
+            print(f"  [Cerebras 오류] {e}")
+        return [-1] * n
+
+
+def call_openrouter_batch(texts: list) -> list:
+    global _openrouter_last_call, _openrouter_exhausted
+    if not OPENROUTER_API_KEY:
+        return [-1] * len(texts)
+    n = len(texts)
+    elapsed = time.time() - _openrouter_last_call
+    if elapsed < OPENROUTER_INTERVAL:
+        time.sleep(OPENROUTER_INTERVAL - elapsed)
+    try:
+        resp = requests.post(
+            OPENROUTER_URL,
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                     "Content-Type": "application/json",
+                     "HTTP-Referer": "https://github.com/disaster-classifier",
+                     "X-Title": "disaster-msg-classifier"},
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {"role": "system", "content": _SYS},
+                    {"role": "user",   "content": _build_batch_user_msg(texts)},
+                ],
+                "temperature": 0.0,
+                # gpt-oss-120b는 추론 모델 — reasoning에 토큰을 소모하므로 effort를 낮추고 여유 토큰을 둠
+                "reasoning_effort": "low",
+                "max_tokens": n * 30 + 500,
+            },
+            timeout=60,
+        )
+        _openrouter_last_call = time.time()
+        if resp.status_code == 429:
+            print(f"  [OpenRouter 할당량 소진] 이후 배치 OpenRouter 호출 건너뜁니다.")
+            _openrouter_exhausted = True
+            return [-1] * n
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"] or ""
+        return _parse_batch_response(content, n)
+    except Exception as e:
+        _openrouter_last_call = time.time()
+        err = str(e).lower()
+        if "429" in err or "quota" in err or "rate_limit" in err or "rate-limit" in err:
+            print(f"  [OpenRouter 할당량 소진] 이후 배치 OpenRouter 호출 건너뜁니다.")
+            _openrouter_exhausted = True
+        else:
+            print(f"  [OpenRouter 오류] {e}")
+        return [-1] * n
+
+
 def call_llm_batch(texts: list) -> list:
     n = len(texts)
     result = [-1] * n
 
-    if _gemini_model is not None and not _gemini_exhausted:
-        result = call_gemini_batch(texts)
+    # 임시 1순위: Gemini/Groq/Cerebras가 모두 소진/장애 상태이므로 OpenRouter를 먼저 시도
+    if OPENROUTER_API_KEY and not _openrouter_exhausted:
+        result = call_openrouter_batch(texts)
+
+    failed = [i for i, r in enumerate(result) if r == -1]
+    if failed and _gemini_model is not None and not _gemini_exhausted:
+        gem_res = call_gemini_batch([texts[i] for i in failed])
+        for j, i in enumerate(failed):
+            if gem_res[j] >= 0:
+                result[i] = gem_res[j]
 
     failed = [i for i, r in enumerate(result) if r == -1]
     if failed and not _groq_exhausted:
@@ -248,6 +386,13 @@ def call_llm_batch(texts: list) -> list:
         for j, i in enumerate(failed):
             if groq_res[j] >= 0:
                 result[i] = groq_res[j]
+
+    failed = [i for i, r in enumerate(result) if r == -1]
+    if failed and CEREBRAS_API_KEY and not _cerebras_exhausted:
+        cb_res = call_cerebras_batch([texts[i] for i in failed])
+        for j, i in enumerate(failed):
+            if cb_res[j] >= 0:
+                result[i] = cb_res[j]
 
     return result
 
@@ -270,6 +415,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--skip_llm', action='store_true',
                         help='LLM 호출 없이 라우팅 분포 확인 (빠른 모드)')
+    parser.add_argument('--max_calls', type=int, default=0,
+                        help='이번 실행에서 수행할 신규 API 호출 건수 제한 (0=무제한, 끊어서 실행할 때 사용)')
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -377,9 +524,14 @@ def main():
     for idx in cached_indices:
         final_preds[idx] = _llm_cache[texts[idx]]
 
+    if args.max_calls > 0 and api_needed > args.max_calls:
+        uncached_indices = uncached_indices[:args.max_calls]
+        print(f"  [--max_calls] 이번 실행은 {args.max_calls}건만 호출 (남은 {api_needed - args.max_calls:,}건은 다음 실행에서 캐시 이어받기)")
+
     batches = [uncached_indices[i:i + BATCH_SIZE_LLM]
                for i in range(0, len(uncached_indices), BATCH_SIZE_LLM)]
 
+    n_calls_done = 0
     for b_idx, batch_indices in enumerate(tqdm(batches, ncols=90, desc="배치 LLM")):
         batch_texts = [texts[i] for i in batch_indices]
         preds = call_llm_batch(batch_texts)
@@ -389,10 +541,16 @@ def main():
                 _llm_cache[texts[idx]] = pred
             else:
                 llm_fail += 1
+        n_calls_done += len(batch_indices)
         if (b_idx + 1) % 5 == 0:
             save_cache()
 
     save_cache()
+    if args.max_calls > 0:
+        remaining = api_needed - n_calls_done
+        print(f"\n[이번 실행 요약] 신규 호출 {n_calls_done:,}건 처리, 남은 미처리 {max(remaining, 0):,}건")
+        if remaining > 0:
+            print(f"  → 동일 명령에 --max_calls 옵션으로 다시 실행하면 캐시를 이어받아 계속 진행합니다.")
     if llm_fail > 0:
         print(f"  [LLM 실패] {llm_fail}건 → v22 예측 그대로 사용")
 
@@ -428,7 +586,7 @@ def main():
     output = "\n".join(lines)
     print("\n" + output)
 
-    result_path = "실험/evaluate_pipeline_results.txt"
+    result_path = "results/evaluate_pipeline_results.txt"
     with open(result_path, "w", encoding="utf-8") as f:
         f.write(output)
     print(f"\n결과 저장: {result_path}")

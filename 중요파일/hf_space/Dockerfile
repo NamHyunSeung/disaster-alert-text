@@ -2,14 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir \
-    fastapi>=0.111.0 \
-    uvicorn>=0.30.0 \
-    transformers>=4.40.0 \
-    torch>=2.1.0 \
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
-COPY app.py .
+COPY app.py knn_ood_v22.npz knn_ood_v22_meta.pt ./
+COPY model ./model
+COPY tokenizer ./tokenizer
 
 EXPOSE 7860
 
